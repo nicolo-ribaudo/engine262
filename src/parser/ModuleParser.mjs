@@ -15,6 +15,7 @@ export class ModuleParser extends StatementParser {
     }
     const node = this.startNode();
     this.next();
+    node.Defer = this.eat(Token.NOT);
     if (this.test(Token.STRING)) {
       node.ModuleSpecifier = this.parsePrimaryExpression();
     } else {

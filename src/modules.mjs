@@ -85,6 +85,16 @@ export class CyclicModuleRecord extends AbstractModuleRecord {
     this.PendingAsyncDependencies = init.PendingAsyncDependencies;
   }
 
+  #Status;
+  set Status(s) {
+    // console.log('Set module status of', this.HostDefined.specifier, 'to', s);
+    this.#Status = s;
+  }
+
+  get Status() {
+    return this.#Status;
+  }
+
   /** http://tc39.es/ecma262/#sec-LoadRequestedModules */
   LoadRequestedModules(hostDefined = Value.undefined) {
     const module = this;
@@ -139,13 +149,13 @@ export class CyclicModuleRecord extends AbstractModuleRecord {
     // 2. Let module be this Cyclic Module Record.
     let module = this;
     // 3. Assert: module.[[Status]] is linked or evaluated.
-    Assert(module.Status === 'linked' || module.Status === 'evaluating-async' || module.Status === 'evaluated');
-    // (*TopLevelAwait) 3. If module.[[Status]] is evaluating-async or evaluated, set module to module.[[CycleRoot]].
+    Assert(module.Status === 'linked' || module.Status === 'async-subgraphs-evaluated' || module.Status === 'evaluated');
+    // (*TopLevelAwait) 3. If module.[[Status]] is evaluating-async or evaluated, set module to GetAsyncCycleRoot(module).
     if (module.Status === 'evaluating-async' || module.Status === 'evaluated') {
       module = module.CycleRoot;
     }
     // (*TopLevelAwait) 4. If module.[[TopLevelCapability]] is not undefined, then
-    if (module.TopLevelCapability !== Value.undefined) {
+    if (module.Status !== 'async-subgraphs-evaluated' && module.TopLevelCapability !== Value.undefined) {
       // a. Return module.[[TopLevelCapability]].[[Promise]].
       return module.TopLevelCapability.Promise;
     }

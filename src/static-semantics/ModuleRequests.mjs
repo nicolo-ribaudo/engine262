@@ -1,6 +1,6 @@
 import { StringValue } from './all.mjs';
 
-export function ModuleRequests(node) {
+export function ModuleRequests(node, defer = false) {
   switch (node.type) {
     case 'Module':
       if (node.ModuleBody) {
@@ -16,16 +16,16 @@ export function ModuleRequests(node) {
     }
     case 'ImportDeclaration':
       if (node.FromClause) {
-        return ModuleRequests(node.FromClause);
+        return ModuleRequests(node.FromClause, node.Defer);
       }
-      return [StringValue(node.ModuleSpecifier)];
+      return [{ Defer: node.Defer, Specifier: StringValue(node.ModuleSpecifier) }];
     case 'ExportDeclaration':
       if (node.FromClause) {
-        return ModuleRequests(node.FromClause);
+        return ModuleRequests(node.FromClause, node.Defer);
       }
       return [];
     case 'StringLiteral':
-      return [StringValue(node)];
+      return [{ Defer: defer, Specifier: StringValue(node) }];
     default:
       return [];
   }
