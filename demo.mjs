@@ -281,6 +281,50 @@ await test('#3.1 - forceEvaluation', {
   `,
 }, ["'b'", "'e - start'", "'e - finish'", "'a'", "'d'", "'c'"]);
 
+await test("#4", {
+  a: `
+    import! "b";
+    import "c";
+    import "b";
+    print("a");
+  `,
+
+  b: `
+    print("b");
+  `,
+
+  c: `
+    print("c");
+  `,
+// Should this be 'c', 'b', 'a' instead?
+}, ["'b'", "'c'", "'a'"]);
+
+await test("#4.1", {
+  a: `
+    import! "b";
+    import "c";
+    import "b";
+    print("a");
+  `,
+
+  b: `
+    import "d";
+    print("b");
+  `,
+
+  c: `
+    import "d";
+    print("c");
+  `,
+
+  d: `
+    print("d - start");
+    await 0;
+    print("d - finish");
+  `
+// Shuld this be 'd - start', 'd - finish', 'c', 'b', 'a' instead?
+}, ["'d - start'", "'d - finish'", "'b'", "'c'", "'a'"]);
+
 function co(gen) {
   return new Promise((resolve, reject) => {
     const genObject = gen();

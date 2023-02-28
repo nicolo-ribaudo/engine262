@@ -8,11 +8,18 @@ export function ModuleRequests(node, defer = false) {
       }
       return [];
     case 'ModuleBody': {
-      const moduleNames = [];
+      const moduleRequests = new Map(/* specifier -> Module Request */);
       for (const item of node.ModuleItemList) {
-        moduleNames.push(...ModuleRequests(item));
+        for (const request of ModuleRequests(item)) {
+          const existingRequest = moduleRequests.get(request.Specifier.stringValue());
+          if (existingRequest) {
+            existingRequest.Defer = existingRequest.Defer && request.Defer;
+          } else {
+            moduleRequests.set(request.Specifier.stringValue(), request);
+          }
+        }
       }
-      return moduleNames;
+      return Array.from(moduleRequests.values());
     }
     case 'ImportDeclaration':
       if (node.FromClause) {
