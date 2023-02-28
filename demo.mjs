@@ -35,6 +35,8 @@ const agent = new Agent({
 });
 setSurroundingAgent(agent);
 
+// function only() { return "#1" }
+
 await test('#1', {
   a: `
     import! "c";
@@ -324,6 +326,192 @@ await test("#4.1", {
   `
 // Shuld this be 'd - start', 'd - finish', 'c', 'b', 'a' instead?
 }, ["'d - start'", "'d - finish'", "'b'", "'c'", "'a'"]);
+
+await test("#5", {
+  a: `
+    import! "b";
+    print("a");
+  `,
+
+  b: `
+    import "c";
+    print("b");
+  `,
+
+  c: `
+    import "d";
+    print("c - start");
+    await 0;
+    print("c - finish");
+  `,
+
+  d: `
+    import! "e";
+    print("d");
+  `,
+
+  e: `
+    import "f";
+    print("e");
+  `,
+
+  f: `
+    import "a";
+    print("f - start");
+    await 0;
+    print("f - finish");
+  `,
+}, ["'f - start'", "'f - finish'", "'d'", "'c - start'", "'c - finish'", "'a'"]);
+
+await test("#5 - forceEvaluation(b from a)", {
+  a: `
+    import! "b";
+    print("a");
+    forceEvaluation("b");
+  `,
+
+  b: `
+    import "c";
+    print("b");
+  `,
+
+  c: `
+    import "d";
+    print("c - start");
+    await 0;
+    print("c - finish");
+  `,
+
+  d: `
+    import! "e";
+    print("d");
+  `,
+
+  e: `
+    import "f";
+    print("e");
+  `,
+
+  f: `
+    import "a";
+    print("f - start");
+    await 0;
+    print("f - finish");
+  `,
+}, ["'f - start'", "'f - finish'", "'d'", "'c - start'", "'c - finish'", "'a'", "'b'"]);
+
+await test("#5 - forceEvaluation(e from d)", {
+  a: `
+    import! "b";
+    print("a");
+  `,
+
+  b: `
+    import "c";
+    print("b");
+  `,
+
+  c: `
+    import "d";
+    print("c - start");
+    await 0;
+    print("c - finish");
+  `,
+
+  d: `
+    import! "e";
+    print("d");
+    forceEvaluation("e");
+  `,
+
+  e: `
+    import "f";
+    print("e");
+  `,
+
+  f: `
+    import "a";
+    print("f - start");
+    await 0;
+    print("f - finish");
+  `,
+}, ["'f - start'", "'f - finish'", "'d'", "'e'", "'c - start'", "'c - finish'", "'a'"]);
+
+await test("#5 - forceEvaluation(e from d, b from a)", {
+  a: `
+    import! "b";
+    print("a");
+    forceEvaluation("b");
+  `,
+
+  b: `
+    import "c";
+    print("b");
+  `,
+
+  c: `
+    import "d";
+    print("c - start");
+    await 0;
+    print("c - finish");
+  `,
+
+  d: `
+    import! "e";
+    print("d");
+    forceEvaluation("e");
+  `,
+
+  e: `
+    import "f";
+    print("e");
+  `,
+
+  f: `
+    import "a";
+    print("f - start");
+    await 0;
+    print("f - finish");
+  `,
+}, ["'f - start'", "'f - finish'", "'d'", "'e'", "'c - start'", "'c - finish'", "'a'", "'b'"]);
+
+await test("#5 - forceEvaluation(e from a, b from a)", {
+  a: `
+    import! "b";
+    print("a");
+    forceEvaluation("e");
+    forceEvaluation("b");
+  `,
+
+  b: `
+    import "c";
+    print("b");
+  `,
+
+  c: `
+    import "d";
+    print("c - start");
+    await 0;
+    print("c - finish");
+  `,
+
+  d: `
+    import! "e";
+    print("d");
+  `,
+
+  e: `
+    import "f";
+    print("e");
+  `,
+
+  f: `
+    import "a";
+    print("f - start");
+    await 0;
+    print("f - finish");
+  `,
+}, ["'f - start'", "'f - finish'", "'d'", "'c - start'", "'c - finish'", "'a'", "'e'", "'b'"]);
 
 function co(gen) {
   return new Promise((resolve, reject) => {
