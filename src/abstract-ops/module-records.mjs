@@ -198,7 +198,7 @@ export function InnerModuleEvaluation(module, stack, index) {
   } else {
     Q(module.ExecuteModule());
   }
-  // Assert(stack.indexOf(module) === stack.lastIndexOf(module));
+  Assert(stack.includes(module));
   Assert(module.DFSAncestorIndex <= module.DFSIndex);
   if (module.DFSAncestorIndex === module.DFSIndex) {
     let done = false;
@@ -239,7 +239,7 @@ function AfterCyclicModuleRecordEvaluation(module, requiredModule, stack) {
     module.DFSAncestorIndex = Math.min(module.DFSAncestorIndex, requiredModule.DFSAncestorIndex);
   } else if (requiredModule.Status !== 'async-subgraphs-evaluating') {
     requiredModule = requiredModule.CycleRoot;
-    // Assert(requiredModule.Status === 'async-subgraphs-evaluating-async' || requiredModule.Status === 'async-subgraphs-evaluated' || requiredModule.Status === 'evaluating-async' || requiredModule.Status === 'evaluated');
+    Assert(requiredModule.Status === 'async-subgraphs-evaluating-async' || requiredModule.Status === 'async-subgraphs-evaluated' || requiredModule.Status === 'evaluating-async' || requiredModule.Status === 'evaluated');
     if (requiredModule.EvaluationError !== Value.undefined) {
       return module.EvaluationError;
     }
