@@ -1,3 +1,26 @@
+/**
+ * README
+ *
+ * This branch contains an experimental version of an ESM graph evaluation
+ * algorithm that supports deferred evaluation with eager pre-evaluation of
+ * the async modules (and their dependencies) in the graph.
+ *
+ * The goal of this experiment was only to test the algorithm, and not the
+ * syntax and and the other semantic parts of the proposal. To minimize the
+ * effort spent on those, this demo uses:
+ * - `import! "x"` instead of `import defer * as ns from "x"` to specify
+ *   deferred imports
+ * - `forceEvaluation("x")` instead of `ns.someProperty` to force the
+ *   evaluation of the deferred module.
+ *
+ * You can find a few tests below. In each graph, the entry point is `"a"`.
+ *
+ * If you want to manually run these tests, follow these steps:
+ * - Install engine262's deps with `npm install`
+ * - Build engine262 with `npm run build`
+ * - Run this file with `node demo.mjs`
+ */
+
 /* eslint-disable */
 
 import { createRequire } from 'module';
