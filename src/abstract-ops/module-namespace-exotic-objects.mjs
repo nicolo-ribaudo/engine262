@@ -120,6 +120,15 @@ function ModuleNamespaceGet(P, Receiver) {
   }
   // 5. Let m be O.[[Module]].
   const m = O.Module;
+
+  if (m.Status === 'async-subgraphs-evaluated') {
+    const promise = m.Evaluate();
+    Assert(promise.PromiseState === 'fulfilled' || promise.PromiseState === 'rejected');
+    if (promise.PromiseState === 'rejected') {
+      return X(promise.PromiseResult);
+    }
+  }
+
   // 6. Let binding be ! m.ResolveExport(P).
   const binding = m.ResolveExport(P);
   // 7. Assert: binding is a ResolvedBinding Record.

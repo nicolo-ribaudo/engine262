@@ -110,12 +110,13 @@ await test('#2 - forceEvaluation', {
   a: `
     import defer * as ns from "c";
     print("a");
-    forceEvaluation("c");
+    ns.c;
   `,
 
   c: `
     import "e";
     print("c");
+    export const c = 1;
   `,
 
   e: `
@@ -160,7 +161,7 @@ await test('#2.1 - forceEvaluation', {
     import "b";
     import defer * as ns from "c";
     print("a");
-    forceEvaluation("c");
+    ns.c;
   `,
 
   b: `
@@ -171,6 +172,7 @@ await test('#2.1 - forceEvaluation', {
     import "d";
     import "e";
     print("c");
+    export const c = 1;
   `,
 
   d: `
@@ -208,12 +210,13 @@ await test('#3 - forceEvaluation', {
   a: `
     import defer * as ns from "c";
     print("a");
-    forceEvaluation("c");
+    ns.c;
   `,
 
   c: `
     import "e";
     print("c");
+    export const c = 1;
   `,
 
   e: `
@@ -258,7 +261,7 @@ await test('#3.1 - forceEvaluation', {
     import "b";
     import defer * as ns from "c";
     print("a");
-    forceEvaluation("c");
+    ns.c;
   `,
 
   b: `
@@ -269,6 +272,7 @@ await test('#3.1 - forceEvaluation', {
     import "d";
     import "e";
     print("c");
+    export const c = 1;
   `,
 
   d: `
@@ -367,12 +371,13 @@ await test("#5 - forceEvaluation(b from a)", {
   a: `
     import defer * as ns from "b";
     print("a");
-    forceEvaluation("b");
+    ns.b;
   `,
 
   b: `
     import "c";
     print("b");
+    export const b = 1;
   `,
 
   c: `
@@ -421,12 +426,13 @@ await test("#5 - forceEvaluation(e from d)", {
   d: `
     import defer * as ns from "e";
     print("d");
-    forceEvaluation("e");
+    ns.e;
   `,
 
   e: `
     import "f";
     print("e");
+    export const e = 1;
   `,
 
   f: `
@@ -441,12 +447,13 @@ await test("#5 - forceEvaluation(e from d, b from a)", {
   a: `
     import defer * as ns from "b";
     print("a");
-    forceEvaluation("b");
+    ns.b;
   `,
 
   b: `
     import "c";
     print("b");
+    export const b = 1;
   `,
 
   c: `
@@ -459,12 +466,13 @@ await test("#5 - forceEvaluation(e from d, b from a)", {
   d: `
     import defer * as ns from "e";
     print("d");
-    forceEvaluation("e");
+    ns.e;
   `,
 
   e: `
     import "f";
     print("e");
+    export const e = 1;
   `,
 
   f: `
@@ -479,13 +487,14 @@ await test("#5 - forceEvaluation(e from a, b from a)", {
   a: `
     import defer * as ns from "b";
     print("a");
-    forceEvaluation("e");
-    forceEvaluation("b");
+    globalThis.nsE.e;
+    ns.b;
   `,
 
   b: `
     import "c";
     print("b");
+    export const b = 1;
   `,
 
   c: `
@@ -498,11 +507,13 @@ await test("#5 - forceEvaluation(e from a, b from a)", {
   d: `
     import defer * as ns from "e";
     print("d");
+    globalThis.nsE = ns;
   `,
 
   e: `
     import "f";
     print("e");
+    export const e = 1;
   `,
 
   f: `
@@ -556,18 +567,6 @@ function test(name, modules, expected) {
         return Value.undefined;
       });
       CreateDataProperty(realm.GlobalObject, new Value('print'), print);
-
-      const forceEvaluation = new Value((args) => {
-        // eslint-disable-next-line no-shadow
-        const name = args[0].string;
-        const module = registry[name];
-        return module.Evaluate();
-      });
-      CreateDataProperty(
-        realm.GlobalObject,
-        new Value('forceEvaluation'),
-        forceEvaluation,
-      );
 
       const { a: root } = registry;
       co(function* () {
