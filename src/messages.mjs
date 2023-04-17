@@ -59,6 +59,7 @@ export const InvalidArrayLength = (l) => `Invalid array length: ${i(l)}`;
 export const InvalidAssignmentTarget = () => 'Invalid assignment target';
 export const InvalidCodePoint = () => 'Not a valid code point';
 export const InvalidHint = (v) => `Invalid hint: ${i(v)}`;
+export const InvalidImportDeferClause = () => '`import defer` can only be used with namespace imports';
 export const InvalidMethodName = (name) => `Method cannot be named '${i(name)}'`;
 export const InvalidPropertyDescriptor = () => 'Invalid property descriptor. Cannot both specify accessors and a value or writable attribute';
 export const InvalidRadix = () => 'Radix must be between 2 and 36, inclusive';

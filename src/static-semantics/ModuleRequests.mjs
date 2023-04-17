@@ -22,9 +22,8 @@ export function ModuleRequests(node) {
       return Array.from(moduleRequests.values());
     }
     case 'ImportDeclaration': {
-      const phase = node.Defer ? 'defer' : 'full';
       const specifier = StringValue(node.ModuleSpecifier || node.FromClause);
-      return [{ Specifier: specifier, Phase: phase }];
+      return [{ Specifier: specifier, Phase: node.Phase }];
     }
     case 'ExportDeclaration':
       if (node.FromClause) {

@@ -1,4 +1,4 @@
-import { ImportEntriesForModule, ModuleRequests } from './all.mjs';
+import { ImportEntriesForModule, StringValue } from './all.mjs';
 
 export function ImportEntries(node) {
   switch (node.type) {
@@ -17,7 +17,7 @@ export function ImportEntries(node) {
     case 'ImportDeclaration':
       if (node.FromClause) {
         // 1. Let module be the sole element of ModuleRequests of FromClause.
-        const module = ModuleRequests(node.FromClause)[0];
+        const module = StringValue(node.FromClause);
         // 2. Return ImportEntriesForModule of ImportClause with argument module.
         return ImportEntriesForModule(node.ImportClause, module);
       }

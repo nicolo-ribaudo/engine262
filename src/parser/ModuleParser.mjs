@@ -15,10 +15,20 @@ export class ModuleParser extends StatementParser {
     }
     const node = this.startNode();
     this.next();
-    node.Defer = this.eat(Token.NOT);
-    if (this.test(Token.STRING)) {
+    if (this.test('defer') && !this.testAhead('from') && !this.testAhead(Token.COMMA)) {
+      this.next();
+      node.Phase = 'defer';
+      node.ImportClause = this.parseImportClause();
+      if (node.ImportClause.ImportedDefaultBinding || node.ImportClause.NamedImports) {
+        this.raiseEarly('UnexpectedToken', node.ImportClause);
+      }
+      this.scope.declare(node.ImportClause, 'import');
+      node.FromClause = this.parseFromClause();
+    } else if (this.test(Token.STRING)) {
+      node.Phase = 'full';
       node.ModuleSpecifier = this.parsePrimaryExpression();
     } else {
+      node.Phase = 'full';
       node.ImportClause = this.parseImportClause();
       this.scope.declare(node.ImportClause, 'import');
       node.FromClause = this.parseFromClause();

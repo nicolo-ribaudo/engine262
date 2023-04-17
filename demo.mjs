@@ -39,7 +39,7 @@ setSurroundingAgent(agent);
 
 await test('#1', {
   a: `
-    import! "c";
+    import defer * as ns from "c";
     print("a");
   `,
 
@@ -61,7 +61,7 @@ await test('#1', {
 await test('#1.1', {
   a: `
     import "b";
-    import! "c";
+    import defer * as ns from "c";
     print("a");
   `,
 
@@ -89,7 +89,7 @@ await test('#1.1', {
 
 await test('#2', {
   a: `
-    import! "c";
+    import defer * as ns from "c";
     print("a");
   `,
 
@@ -99,7 +99,7 @@ await test('#2', {
   `,
 
   e: `
-    import! "c";
+    import defer * as ns from "c";
     print("e - start");
     await 0;
     print("e - finish");
@@ -108,7 +108,7 @@ await test('#2', {
 
 await test('#2 - forceEvaluation', {
   a: `
-    import! "c";
+    import defer * as ns from "c";
     print("a");
     forceEvaluation("c");
   `,
@@ -119,7 +119,7 @@ await test('#2 - forceEvaluation', {
   `,
 
   e: `
-    import! "c";
+    import defer * as ns from "c";
     print("e - start");
     await 0;
     print("e - finish");
@@ -129,7 +129,7 @@ await test('#2 - forceEvaluation', {
 await test('#2.1', {
   a: `
     import "b";
-    import! "c";
+    import defer * as ns from "c";
     print("a");
   `,
 
@@ -148,7 +148,7 @@ await test('#2.1', {
   `,
 
   e: `
-    import! "c";
+    import defer * as ns from "c";
     print("e - start");
     await 0;
     print("e - finish");
@@ -158,7 +158,7 @@ await test('#2.1', {
 await test('#2.1 - forceEvaluation', {
   a: `
     import "b";
-    import! "c";
+    import defer * as ns from "c";
     print("a");
     forceEvaluation("c");
   `,
@@ -178,7 +178,7 @@ await test('#2.1 - forceEvaluation', {
   `,
 
   e: `
-    import! "c";
+    import defer * as ns from "c";
     print("e - start");
     await 0;
     print("e - finish");
@@ -187,7 +187,7 @@ await test('#2.1 - forceEvaluation', {
 
 await test('#3', {
   a: `
-    import! "c";
+    import defer * as ns from "c";
     print("a");
   `,
 
@@ -197,7 +197,7 @@ await test('#3', {
   `,
 
   e: `
-    import! "a";
+    import defer * as ns from "a";
     print("e - start");
     await 0;
     print("e - finish");
@@ -206,7 +206,7 @@ await test('#3', {
 
 await test('#3 - forceEvaluation', {
   a: `
-    import! "c";
+    import defer * as ns from "c";
     print("a");
     forceEvaluation("c");
   `,
@@ -217,7 +217,7 @@ await test('#3 - forceEvaluation', {
   `,
 
   e: `
-    import! "a";
+    import defer * as ns from "a";
     print("e - start");
     await 0;
     print("e - finish");
@@ -227,7 +227,7 @@ await test('#3 - forceEvaluation', {
 await test('#3.1', {
   a: `
     import "b";
-    import! "c";
+    import defer * as ns from "c";
     print("a");
   `,
 
@@ -246,7 +246,7 @@ await test('#3.1', {
   `,
 
   e: `
-    import! "a";
+    import defer * as ns from "a";
     print("e - start");
     await 0;
     print("e - finish");
@@ -256,7 +256,7 @@ await test('#3.1', {
 await test('#3.1 - forceEvaluation', {
   a: `
     import "b";
-    import! "c";
+    import defer * as ns from "c";
     print("a");
     forceEvaluation("c");
   `,
@@ -276,7 +276,7 @@ await test('#3.1 - forceEvaluation', {
   `,
 
   e: `
-    import! "a";
+    import defer * as ns from "a";
     print("e - start");
     await 0;
     print("e - finish");
@@ -285,7 +285,7 @@ await test('#3.1 - forceEvaluation', {
 
 await test("#4", {
   a: `
-    import! "b";
+    import defer * as ns from "b";
     import "c";
     import "b";
     print("a");
@@ -303,7 +303,7 @@ await test("#4", {
 
 await test("#4.1", {
   a: `
-    import! "b";
+    import defer * as ns from "b";
     import "c";
     import "b";
     print("a");
@@ -329,7 +329,7 @@ await test("#4.1", {
 
 await test("#5", {
   a: `
-    import! "b";
+    import defer * as ns from "b";
     print("a");
   `,
 
@@ -346,7 +346,7 @@ await test("#5", {
   `,
 
   d: `
-    import! "e";
+    import defer * as ns from "e";
     print("d");
   `,
 
@@ -365,7 +365,7 @@ await test("#5", {
 
 await test("#5 - forceEvaluation(b from a)", {
   a: `
-    import! "b";
+    import defer * as ns from "b";
     print("a");
     forceEvaluation("b");
   `,
@@ -383,7 +383,7 @@ await test("#5 - forceEvaluation(b from a)", {
   `,
 
   d: `
-    import! "e";
+    import defer * as ns from "e";
     print("d");
   `,
 
@@ -402,7 +402,7 @@ await test("#5 - forceEvaluation(b from a)", {
 
 await test("#5 - forceEvaluation(e from d)", {
   a: `
-    import! "b";
+    import defer * as ns from "b";
     print("a");
   `,
 
@@ -419,7 +419,7 @@ await test("#5 - forceEvaluation(e from d)", {
   `,
 
   d: `
-    import! "e";
+    import defer * as ns from "e";
     print("d");
     forceEvaluation("e");
   `,
@@ -439,7 +439,7 @@ await test("#5 - forceEvaluation(e from d)", {
 
 await test("#5 - forceEvaluation(e from d, b from a)", {
   a: `
-    import! "b";
+    import defer * as ns from "b";
     print("a");
     forceEvaluation("b");
   `,
@@ -457,7 +457,7 @@ await test("#5 - forceEvaluation(e from d, b from a)", {
   `,
 
   d: `
-    import! "e";
+    import defer * as ns from "e";
     print("d");
     forceEvaluation("e");
   `,
@@ -477,7 +477,7 @@ await test("#5 - forceEvaluation(e from d, b from a)", {
 
 await test("#5 - forceEvaluation(e from a, b from a)", {
   a: `
-    import! "b";
+    import defer * as ns from "b";
     print("a");
     forceEvaluation("e");
     forceEvaluation("b");
@@ -496,7 +496,7 @@ await test("#5 - forceEvaluation(e from a, b from a)", {
   `,
 
   d: `
-    import! "e";
+    import defer * as ns from "e";
     print("d");
   `,
 
@@ -540,6 +540,9 @@ function test(name, modules, expected) {
 
     const registry = mapObj(([s, st]) => [s, realm.createSourceTextModule(s, st)])(modules);
     mapObj(([s, m]) => {
+      if (m instanceof AbruptCompletion) {
+        throw new SyntaxError(JSON.stringify(m));
+      }
       m.HostDefined.registry = registry;
       return [s, 0];
     })(registry);
