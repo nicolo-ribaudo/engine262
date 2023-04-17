@@ -179,9 +179,9 @@ export function InnerModuleEvaluation(module, stack, index) {
   module.AsyncEvaluation = Value.false;
   index += 1;
   stack.push(module);
-  for (const { Specifier: required, Defer: defer } of module.RequestedModules) {
+  for (const { Specifier: required, Phase: phase } of module.RequestedModules) {
     const requiredModule = GetImportedModule(module, required);
-    if (defer) {
+    if (phase === 'defer') {
       index = Q(InnerAsyncSubgraphsEvaluation(requiredModule, stack, index));
     } else {
       index = Q(InnerModuleEvaluation(requiredModule, stack, index));
