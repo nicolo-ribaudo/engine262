@@ -112,7 +112,7 @@ export function InnerModuleLinking(module, stack, index) {
     Q(module.Link());
     return index;
   }
-  if (module.Status === 'linking' || module.Status === 'linked' || module.Status === 'async-subgraphs-evaluating-async' || module.Status === 'async-subgraphs-evaluated' || module.Status === 'evaluating-async' || module.Status === 'evaluated') {
+  if (module.Status === 'linking' || module.Status === 'linked' || module.Status === 'async-subgraphs-searching-async' || module.Status === 'async-subgraphs-evaluated' || module.Status === 'evaluating-async' || module.Status === 'evaluated') {
     return index;
   }
   Assert(module.Status === 'unlinked');
@@ -125,7 +125,7 @@ export function InnerModuleLinking(module, stack, index) {
     const requiredModule = GetImportedModule(module, required);
     index = Q(InnerModuleLinking(requiredModule, stack, index));
     if (requiredModule instanceof CyclicModuleRecord) {
-      Assert(requiredModule.Status === 'linking' || requiredModule.Status === 'linked' || requiredModule.Status === 'async-subgraphs-evaluating-async' || requiredModule.Status === 'async-subgraphs-evaluated' || requiredModule.Status === 'evaluating-async' || requiredModule.Status === 'evaluated');
+      Assert(requiredModule.Status === 'linking' || requiredModule.Status === 'linked' || requiredModule.Status === 'async-subgraphs-searching-async' || requiredModule.Status === 'async-subgraphs-evaluated' || requiredModule.Status === 'evaluating-async' || requiredModule.Status === 'evaluated');
       Assert((requiredModule.Status === 'linking') === stack.includes(requiredModule));
       if (requiredModule.Status === 'linking') {
         module.DFSAncestorIndex = Math.min(module.DFSAncestorIndex, requiredModule.DFSAncestorIndex);
@@ -170,7 +170,7 @@ export function InnerModuleEvaluation(module, stack, index) {
   if (module.Status === 'evaluating') {
     return index;
   }
-  Assert(module.Status === 'linked' || module.Status === 'async-subgraphs-evaluating' || module.Status === 'async-subgraphs-evaluating-async' || module.Status === 'async-subgraphs-evaluated');
+  Assert(module.Status === 'linked' || module.Status === 'async-subgraphs-searching' || module.Status === 'async-subgraphs-searching-async' || module.Status === 'async-subgraphs-evaluated');
   module.Status = 'evaluating';
   module.DFSIndex = index;
   module.DFSAncestorIndex = index;
@@ -208,8 +208,8 @@ export function InnerModuleEvaluation(module, stack, index) {
       if (requiredModule.AsyncEvaluation === Value.false) {
         Assert(requiredModule.Status === 'evaluating');
         requiredModule.Status = 'evaluated';
-      } else if (requiredModule.Status === 'async-subgraphs-evaluating') {
-        requiredModule.Status = 'async-subgraphs-evaluating-async';
+      } else if (requiredModule.Status === 'async-subgraphs-searching') {
+        requiredModule.Status = 'async-subgraphs-searching-async';
       } else {
         Assert(requiredModule.Status === 'evaluating');
         requiredModule.Status = 'evaluating-async';
@@ -233,18 +233,18 @@ export function InnerModuleEvaluation(module, stack, index) {
 }
 
 function AfterCyclicModuleRecordEvaluation(module, requiredModule, stack) {
-  Assert(requiredModule.Status === 'async-subgraphs-evaluating' || requiredModule.Status === 'async-subgraphs-evaluating-async' || requiredModule.Status === 'async-subgraphs-evaluated' || requiredModule.Status === 'evaluating' || requiredModule.Status === 'evaluating-async' || requiredModule.Status === 'evaluated');
-  Assert((requiredModule.Status === 'async-subgraphs-evaluating' || requiredModule.Status === 'evaluating') === stack.includes(requiredModule));
-  if (requiredModule.Status === 'evaluating' || (requiredModule.Status === 'async-subgraphs-evaluating' && module.Status === 'async-subgraphs-evaluating')) {
+  Assert(requiredModule.Status === 'async-subgraphs-searching' || requiredModule.Status === 'async-subgraphs-searching-async' || requiredModule.Status === 'async-subgraphs-evaluated' || requiredModule.Status === 'evaluating' || requiredModule.Status === 'evaluating-async' || requiredModule.Status === 'evaluated');
+  Assert((requiredModule.Status === 'async-subgraphs-searching' || requiredModule.Status === 'evaluating') === stack.includes(requiredModule));
+  if (requiredModule.Status === 'evaluating' || (requiredModule.Status === 'async-subgraphs-searching' && module.Status === 'async-subgraphs-searching')) {
     module.DFSAncestorIndex = Math.min(module.DFSAncestorIndex, requiredModule.DFSAncestorIndex);
-  } else if (requiredModule.Status !== 'async-subgraphs-evaluating') {
+  } else if (requiredModule.Status !== 'async-subgraphs-searching') {
     requiredModule = requiredModule.CycleRoot;
-    Assert(requiredModule.Status === 'async-subgraphs-evaluating-async' || requiredModule.Status === 'async-subgraphs-evaluated' || requiredModule.Status === 'evaluating-async' || requiredModule.Status === 'evaluated');
+    Assert(requiredModule.Status === 'async-subgraphs-searching-async' || requiredModule.Status === 'async-subgraphs-evaluated' || requiredModule.Status === 'evaluating-async' || requiredModule.Status === 'evaluated');
     if (requiredModule.EvaluationError !== Value.undefined) {
       return module.EvaluationError;
     }
   }
-  if (requiredModule.AsyncEvaluation === Value.true) {
+  if (requiredModule.AsyncEvaluation === Value.true && module.Status !== 'evaluated' && module.Status !== 'async-subgraphs-evaluated') {
     module.PendingAsyncDependencies += 1;
     requiredModule.AsyncParentModules.push(module);
   }
@@ -255,18 +255,18 @@ export function InnerAsyncSubgraphsEvaluation(module, stack, index) {
   if (!(module instanceof CyclicModuleRecord) || module.HasTLA === Value.true) {
     return InnerModuleEvaluation(module, stack, index);
   }
-  if (module.Status === 'async-subgraphs-evaluating-async' || module.Status === 'async-subgraphs-evaluated' || module.Status === 'evaluating-async' || module.Status === 'evaluated') {
+  if (module.Status === 'async-subgraphs-searching-async' || module.Status === 'async-subgraphs-evaluated' || module.Status === 'evaluating-async' || module.Status === 'evaluated') {
     if (module.EvaluationError === Value.undefined) {
       return index;
     } else {
       return module.EvaluationError;
     }
   }
-  if (module.Status === 'async-subgraphs-evaluating' || module.Status === 'evaluating') {
+  if (module.Status === 'async-subgraphs-searching' || module.Status === 'evaluating') {
     return index;
   }
   Assert(module.Status === 'linked');
-  module.Status = 'async-subgraphs-evaluating';
+  module.Status = 'async-subgraphs-searching';
   module.DFSIndex = index;
   module.DFSAncestorIndex = index;
   module.PendingAsyncDependencies = 0;
@@ -291,15 +291,15 @@ export function InnerAsyncSubgraphsEvaluation(module, stack, index) {
       const requiredModule = stack.pop();
       Assert(requiredModule instanceof CyclicModuleRecord);
       if (requiredModule.AsyncEvaluation === Value.false) {
-        if (requiredModule.Status === 'async-subgraphs-evaluating') {
+        if (requiredModule.Status === 'async-subgraphs-searching') {
           requiredModule.Status = 'async-subgraphs-evaluated';
         } else {
           Assert(requiredModule.Status === 'evaluating');
           requiredModule.Status = 'evaluated';
         }
       } else {
-        if (requiredModule.Status === 'async-subgraphs-evaluating') {
-          requiredModule.Status = 'async-subgraphs-evaluating-async';
+        if (requiredModule.Status === 'async-subgraphs-searching') {
+          requiredModule.Status = 'async-subgraphs-searching-async';
         } else {
           Assert(requiredModule.Status === 'evaluating');
           requiredModule.Status = 'evaluating-async';
@@ -354,7 +354,7 @@ function ExecuteAsyncModule(module) {
 function GatherAvailableAncestors(module, execList) {
   for (const m of module.AsyncParentModules) {
     if (!execList.includes(m) && m.CycleRoot.EvaluationError === Value.undefined && m.Status !== 'evaluated') {
-      Assert(m.Status === 'async-subgraphs-evaluating-async' || m.Status === 'evaluating-async');
+      Assert(m.Status === 'async-subgraphs-searching-async' || m.Status === 'evaluating-async');
       Assert(m.EvaluationError === Value.undefined);
       Assert(m.AsyncEvaluation === Value.true);
       Assert(m.PendingAsyncDependencies > 0);
@@ -375,7 +375,7 @@ function AsyncModuleExecutionFulfilled(module) {
     Assert(module.EvaluationError !== Value.undefined);
     return Value.undefined;
   }
-  Assert(module.Status === 'async-subgraphs-evaluating-async' || module.Status === 'evaluating-async');
+  Assert(module.Status === 'async-subgraphs-searching-async' || module.Status === 'evaluating-async');
   Assert(module.AsyncEvaluation === Value.true);
   Assert(module.EvaluationError === Value.undefined);
   module.AsyncEvaluation = Value.false;
@@ -398,7 +398,7 @@ function AsyncModuleExecutionFulfilled(module) {
       ExecuteAsyncModule(m);
     } else {
       let success = false;
-      if (m.Status === 'async-subgraphs-evaluating-async') {
+      if (m.Status === 'async-subgraphs-searching-async') {
         m.Status = 'async-subgraphs-evaluated';
         success = true;
       } else {

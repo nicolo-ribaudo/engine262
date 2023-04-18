@@ -1,6 +1,6 @@
 import { Value } from '../value.mjs';
 import { OutOfRange } from '../helpers.mjs';
-import { BoundNames, ModuleRequests, ExportEntriesForModule } from './all.mjs';
+import { BoundNames, ExportEntriesForModule, StringValue } from './all.mjs';
 
 export function ExportEntries(node) {
   if (Array.isArray(node)) {
@@ -23,7 +23,7 @@ export function ExportEntries(node) {
         case !!node.ExportFromClause && !!node.FromClause: {
           // `export` ExportFromClause FromClause `;`
           // 1. Let module be the sole element of ModuleRequests of FromClause.
-          const module = ModuleRequests(node.FromClause)[0];
+          const module = StringValue(node.FromClause);
           // 2. Return ExportEntriesForModule(ExportFromClause, module).
           return ExportEntriesForModule(node.ExportFromClause, module);
         }
