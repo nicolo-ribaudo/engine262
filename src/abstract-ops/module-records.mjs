@@ -159,7 +159,7 @@ export function InnerModuleEvaluation(module, stack, index) {
     if (module.EvaluationError === Value.undefined) {
       // If the module is already fully evaluated, it doesn't take part in cycles anymore.
       // Reset its CycleRoot to be itself.
-      if (module.Status === 'evaluated') {
+      if (module.Status === 'evaluated' && !stack.includes(module.CycleRoot)) {
         module.CycleRoot = module;
       }
       return index;

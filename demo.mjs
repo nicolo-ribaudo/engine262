@@ -524,6 +524,28 @@ await test("#5 - forceEvaluation(e from a, b from a)", {
   `,
 }, ["'f - start'", "'f - finish'", "'d'", "'c - start'", "'c - finish'", "'a'", "'e'", "'b'"]);
 
+await test("#6", {
+  a: `
+    import defer * as ns from "b";
+    print("a - start");
+    ns.b;
+    print("a - finish");
+  `,
+
+  b: `
+    import "c";
+    print("b");
+    export let b;
+  `,
+
+  c: `
+    import "a";
+    print("c - start");
+    await 0;
+    print("c - finish");
+  `,
+}, ["'c - start'", "'c - finish'", "'a - start'", "'b'", "'a - finish'"])
+
 function co(gen) {
   return new Promise((resolve, reject) => {
     const genObject = gen();
