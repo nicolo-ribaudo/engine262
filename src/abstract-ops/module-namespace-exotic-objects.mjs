@@ -15,6 +15,7 @@ import {
   MakeBasicObject,
   IsPropertyKey,
   IsAccessorDescriptor,
+  AnyDependencyNeedsAsyncEvaluation,
   SetImmutablePrototype,
   OrdinaryGetOwnProperty,
   OrdinaryDefineOwnProperty,
@@ -122,10 +123,12 @@ function ModuleNamespaceGet(P, Receiver) {
   const m = O.Module;
 
   if (m.Status === 'linked') {
-    const promise = m.Evaluate();
-    Assert(promise.PromiseState === 'fulfilled' || promise.PromiseState === 'rejected');
-    if (promise.PromiseState === 'rejected') {
-      return X(promise.PromiseResult);
+    if (AnyDependencyNeedsAsyncEvaluation(m) === Value.false) {
+      const promise = m.Evaluate();
+      Assert(promise.PromiseState === 'fulfilled' || promise.PromiseState === 'rejected');
+      if (promise.PromiseState === 'rejected') {
+        return X(promise.PromiseResult);
+      }
     }
   }
 

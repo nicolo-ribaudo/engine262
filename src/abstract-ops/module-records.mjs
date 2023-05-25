@@ -252,6 +252,23 @@ function GatherAsynchronousTransitiveDependencies(module, result, seen = []) {
   }
 }
 
+export function AnyDependencyNeedsAsyncEvaluation(module, seen = []) {
+  if (seen.includes(module)) return Value.false;
+  seen.push(module);
+
+  if (!(module instanceof CyclicModuleRecord) || module.Status === 'evaluated') return Value.false;
+  if (module.HasTLA === Value.true || module.Status === 'evaluating-async') return Value.true;
+
+  for (const required of module.RequestedModules) {
+    const requiredModule = GetImportedModule(module, required.Specifier);
+    if (AnyDependencyNeedsAsyncEvaluation(requiredModule, seen) === Value.true) {
+      return Value.true;
+    }
+  }
+
+  return Value.false;
+}
+
 /** http://tc39.es/ecma262/#sec-execute-async-module */
 function ExecuteAsyncModule(module) {
   // 1. Assert: module.[[Status]] is evaluating or evaluating-async.

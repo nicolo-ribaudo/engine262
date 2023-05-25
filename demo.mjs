@@ -546,6 +546,55 @@ await test("#6", {
   `,
 }, ["'c - start'", "'c - finish'", "'a - start'", "'b'", "'a - finish'"])
 
+// unfinished module namespace due to synchronous defer cycle
+await test("#7", {
+  a: `
+    import defer * as ns from "b";
+    export let a_start;
+    print("a - start");
+    try { ns.b_start; print("ns.b_start ok"); } catch { print("ns.b_start tdz"); }
+    try { ns.b_finish; print("ns.b_finish ok"); } catch { print("ns.b_finish tdz"); }
+    print("a - finish");
+    export let a_finish;
+  `,
+  b: `
+    import defer * as ns from "a";
+    export let b_start;
+    print("b - start");
+    try { ns.a_start; print("ns.a_start ok"); } catch { print("ns.a_start tdz"); }
+    try { ns.a_finish; print("ns.a_finish ok"); } catch { print("ns.a_finish tdz"); }
+    print("b - finish");
+    export let b_finish;
+  `,
+}, ["'a - start'", "'b - start'", "'ns.a_start ok'", "'ns.a_finish tdz'", "'b - finish'", "'ns.b_start ok'", "'ns.b_finish ok'", "'a - finish'"])
+
+// unfinished module namespace due to cycle with asynchronous dependency
+await test("#8", {
+  a: `
+    import "b";
+    print("a");
+  `,
+  b: `
+    import defer * as ns from "c";
+    export { ns };
+    print("b");
+  `,
+  c: `
+    import "d";
+    print("c");
+    export function c_fn() {}
+    export let c_tdz = 1;
+  `,
+  d: `
+    import { ns } from "b";
+    print("ns.c_fn: " + typeof ns.c_fn);
+    try { ns.c_tdz } catch { print("ns.c_tdz: tdz"); }
+    print("d - start");
+    await 0;
+    print("d - finish");
+  `,
+}, ["'ns.c_fn: function'", "'ns.c_tdz: tdz'", "'d - start'", "'d - finish'", "'b'", "'a'"]);
+
 function co(gen) {
   return new Promise((resolve, reject) => {
     const genObject = gen();
