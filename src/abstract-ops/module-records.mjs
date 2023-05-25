@@ -215,7 +215,7 @@ export function InnerModuleEvaluation(module, stack, index) {
   } else {
     Q(module.ExecuteModule());
   }
-  Assert(stack.filter(m => m === module).length === 1);
+  Assert(stack.filter((m) => m === module).length === 1);
   Assert(module.DFSAncestorIndex <= module.DFSIndex);
   if (module.DFSAncestorIndex === module.DFSIndex) {
     let done = false;
@@ -227,7 +227,9 @@ export function InnerModuleEvaluation(module, stack, index) {
       } else {
         requiredModule.Status = 'evaluating-async';
       }
-      if (requiredModule === module) done = true;
+      if (requiredModule === module) {
+        done = true;
+      }
       requiredModule.CycleRoot = module;
     }
   }
@@ -235,14 +237,22 @@ export function InnerModuleEvaluation(module, stack, index) {
 }
 
 function GatherAsynchronousTransitiveDependencies(module, result, seen = []) {
-  if (seen.includes(module)) return;
+  if (seen.includes(module)) {
+    return;
+  }
   seen.push(module);
 
-  if (!(module instanceof CyclicModuleRecord)) return;
-  if (module.Status === 'evaluating' || module.Status === 'evaluated') return;
+  if (!(module instanceof CyclicModuleRecord)) {
+    return;
+  }
+  if (module.Status === 'evaluating' || module.Status === 'evaluated') {
+    return;
+  }
 
   if (module.HasTLA === Value.true) {
-    if (!result.includes(module)) result.push(module);
+    if (!result.includes(module)) {
+      result.push(module);
+    }
     return;
   }
 
@@ -253,11 +263,17 @@ function GatherAsynchronousTransitiveDependencies(module, result, seen = []) {
 }
 
 export function AnyDependencyNeedsAsyncEvaluation(module, seen = []) {
-  if (seen.includes(module)) return Value.false;
+  if (seen.includes(module)) {
+    return Value.false;
+  }
   seen.push(module);
 
-  if (!(module instanceof CyclicModuleRecord) || module.Status === 'evaluated') return Value.false;
-  if (module.HasTLA === Value.true || module.Status === 'evaluating-async') return Value.true;
+  if (!(module instanceof CyclicModuleRecord) || module.Status === 'evaluated') {
+    return Value.false;
+  }
+  if (module.HasTLA === Value.true || module.Status === 'evaluating-async') {
+    return Value.true;
+  }
 
   for (const required of module.RequestedModules) {
     const requiredModule = GetImportedModule(module, required.Specifier);
