@@ -271,7 +271,7 @@ export function AnyDependencyNeedsAsyncEvaluation(module, seen = []) {
   if (!(module instanceof CyclicModuleRecord) || module.Status === 'evaluated') {
     return Value.false;
   }
-  if (module.HasTLA === Value.true || module.Status === 'evaluating-async') {
+  if (module.HasTLA === Value.true) {
     return Value.true;
   }
 
