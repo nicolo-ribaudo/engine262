@@ -149,13 +149,13 @@ export class CyclicModuleRecord extends AbstractModuleRecord {
     // 2. Let module be this Cyclic Module Record.
     let module = this;
     // 3. Assert: module.[[Status]] is linked or evaluated.
-    Assert(module.Status === 'linked' || module.Status === 'async-subgraphs-evaluated' || module.Status === 'evaluated');
+    Assert(module.Status === 'linked' || module.Status === 'evaluating-async' || module.Status === 'evaluated');
     // (*TopLevelAwait) 3. If module.[[Status]] is evaluating-async or evaluated, set module to GetAsyncCycleRoot(module).
     if (module.Status === 'evaluating-async' || module.Status === 'evaluated') {
       module = module.CycleRoot;
     }
     // (*TopLevelAwait) 4. If module.[[TopLevelCapability]] is not undefined, then
-    if (module.Status !== 'async-subgraphs-evaluated' && module.TopLevelCapability !== Value.undefined) {
+    if (module.TopLevelCapability !== Value.undefined) {
       // a. Return module.[[TopLevelCapability]].[[Promise]].
       return module.TopLevelCapability.Promise;
     }

@@ -121,7 +121,7 @@ function ModuleNamespaceGet(P, Receiver) {
   // 5. Let m be O.[[Module]].
   const m = O.Module;
 
-  if (m.Status === 'async-subgraphs-evaluated') {
+  if (m.Status === 'linked') {
     const promise = m.Evaluate();
     Assert(promise.PromiseState === 'fulfilled' || promise.PromiseState === 'rejected');
     if (promise.PromiseState === 'rejected') {
