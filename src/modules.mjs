@@ -151,7 +151,11 @@ export class CyclicModuleRecord extends AbstractModuleRecord {
     // 3. Assert: module.[[Status]] is linked or evaluated.
     Assert(module.Status === 'linked' || module.Status === 'evaluating-async' || module.Status === 'evaluated');
     // (*TopLevelAwait) 3. If module.[[Status]] is evaluating-async or evaluated, set module to GetAsyncCycleRoot(module).
-    if (module.Status === 'evaluating-async' || module.Status === 'evaluated') {
+    if (
+      (module.Status === 'evaluating-async' || module.Status === 'evaluated')
+      // Workaround for https://github.com/tc39/ecma262/issues/2823
+      && module.CycleRoot !== Value.undefined
+    ) {
       module = module.CycleRoot;
     }
     // (*TopLevelAwait) 4. If module.[[TopLevelCapability]] is not undefined, then
