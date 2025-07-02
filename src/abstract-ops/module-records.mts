@@ -230,8 +230,6 @@ export function* InnerModuleEvaluation(module: AbstractModuleRecord, stack: Cycl
   module.Status = 'evaluating';
   const moduleIndex = index;
   module.DFSAncestorIndex = index;
-  module.PendingAsyncDependencies = 0;
-  module.AsyncParentModules = [];
   index += 1;
   let evaluationList: ModuleRecord[];
   if (surroundingAgent.feature('import-defer')) {
@@ -267,9 +265,22 @@ export function* InnerModuleEvaluation(module: AbstractModuleRecord, stack: Cycl
           return EnsureCompletion((requiredModule as CyclicModuleRecord).EvaluationError);
         }
       }
-      if (typeof (requiredModule as CyclicModuleRecord).AsyncEvaluationOrder === 'number') {
+    }
+  }
+  module.PendingAsyncDependencies = 0;
+  for (const required of surroundingAgent.feature('import-defer') ? evaluationList! : module.RequestedModules) {
+    let requiredModule: ModuleRecord | CyclicModuleRecord = surroundingAgent.feature('import-defer') ? required as ModuleRecord : GetImportedModule(module, required as ModuleRequestRecord) as CyclicModuleRecord;
+    if (requiredModule instanceof CyclicModuleRecord) {
+      Assert(requiredModule.Status === 'evaluating' || requiredModule.Status === 'evaluating-async' || requiredModule.Status === 'evaluated');
+      Assert((requiredModule.Status === 'evaluating') === stack.includes(requiredModule));
+      if (requiredModule.Status === 'evaluating-async' || requiredModule.Status === 'evaluated') {
+        (requiredModule as CyclicModuleRecord) = requiredModule.CycleRoot!;
+        Assert(requiredModule.Status === 'evaluating-async' || requiredModule.Status === 'evaluated');
+        Assert(requiredModule.EvaluationError === undefined);
+      }
+      if (typeof requiredModule.AsyncEvaluationOrder === 'number') {
         module.PendingAsyncDependencies += 1;
-        (requiredModule as CyclicModuleRecord).AsyncParentModules.push(module);
+        requiredModule.AsyncParentModules.push(module);
       }
     }
   }
