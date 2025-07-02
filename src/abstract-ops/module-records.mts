@@ -217,10 +217,12 @@ export function* InnerModuleEvaluation(module: AbstractModuleRecord, stack: Cycl
     return NormalCompletion(index);
   }
   if (module.Status === 'evaluating-async' || module.Status === 'evaluated') {
-    if (module.EvaluationError === undefined) {
+    const cycleRoot = module.CycleRoot!;
+    Assert(cycleRoot.Status === 'evaluating-async' || cycleRoot.Status === 'evaluated');
+    if (cycleRoot.EvaluationError === undefined) {
       return NormalCompletion(index);
     } else {
-      return module.EvaluationError;
+      return cycleRoot.EvaluationError;
     }
   }
   if (module.Status === 'evaluating') {
@@ -251,19 +253,13 @@ export function* InnerModuleEvaluation(module: AbstractModuleRecord, stack: Cycl
   }
   stack.push(module);
   for (const required of surroundingAgent.feature('import-defer') ? evaluationList! : module.RequestedModules) {
-    let requiredModule: ModuleRecord | CyclicModuleRecord = surroundingAgent.feature('import-defer') ? required as ModuleRecord : GetImportedModule(module, required as ModuleRequestRecord) as CyclicModuleRecord;
+    const requiredModule: ModuleRecord | CyclicModuleRecord = surroundingAgent.feature('import-defer') ? required as ModuleRecord : GetImportedModule(module, required as ModuleRequestRecord) as CyclicModuleRecord;
     index = Q(yield* InnerModuleEvaluation(requiredModule, stack, index));
     if (requiredModule instanceof CyclicModuleRecord) {
       Assert(requiredModule.Status === 'evaluating' || requiredModule.Status === 'evaluating-async' || requiredModule.Status === 'evaluated');
       Assert((requiredModule.Status === 'evaluating') === stack.includes(requiredModule));
       if (requiredModule.Status === 'evaluating') {
         module.DFSAncestorIndex = Math.min(module.DFSAncestorIndex, requiredModule.DFSAncestorIndex!);
-      } else {
-        requiredModule = requiredModule.CycleRoot!;
-        Assert((requiredModule as CyclicModuleRecord).Status === 'evaluating-async' || (requiredModule as CyclicModuleRecord).Status === 'evaluated');
-        if ((requiredModule as CyclicModuleRecord).EvaluationError !== undefined) {
-          return EnsureCompletion((requiredModule as CyclicModuleRecord).EvaluationError);
-        }
       }
     }
   }
