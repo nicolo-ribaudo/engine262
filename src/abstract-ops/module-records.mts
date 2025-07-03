@@ -1,5 +1,5 @@
 import {
-  surroundingAgent, HostLoadImportedModule, IncrementModuleAsyncEvaluationCount, HostPromiseRejectionTracker,
+  surroundingAgent, HostLoadImportedModule, HostPromiseRejectionTracker,
 } from '../host-defined/engine.mts';
 import {
   CyclicModuleRecord,
@@ -33,7 +33,7 @@ import {
   HostGetSupportedImportAttributes,
   ModuleRequestsEqual,
   ReadyForSyncExecution,
-  type Arguments, type ImportAttributeRecord, type ModuleRequestRecord, type PlainEvaluator, type ScriptRecord, type SourceTextModuleRecord,
+  type Arguments, type Evaluator, type ImportAttributeRecord, type ModuleRequestRecord, type PlainEvaluator, type ScriptRecord,
 } from '#self';
 
 /** https://tc39.es/ecma262/#graphloadingstate-record */
@@ -139,33 +139,90 @@ export function ContinueModuleLoading(state: GraphLoadingState, result: PlainCom
   // 4. Return unused.
 }
 
-/** https://tc39.es/ecma262/#sec-InnerModuleLinking */
-export function InnerModuleLinking(module: AbstractModuleRecord, stack: CyclicModuleRecord[], index: number): PlainCompletion<number> {
+export function* ModuleGraphDFS(
+  root: CyclicModuleRecord,
+  initialStatus: 'unlinked' | 'linked',
+  pendingStatus: 'linking' | 'evaluating',
+  action: (module: ModuleRecord, /* TODO: rebase import-defer spec */ dependenciesList: undefined | ModuleRecord[]) => PlainEvaluator,
+  completeSCC: (module: CyclicModuleRecord, sccRoot: CyclicModuleRecord) => void,
+  postErrorCleanup: (module: CyclicModuleRecord, error: ThrowCompletion) => void,
+  /* TODO: rebase import-defer spec */ isEvaluationForImportDefer: boolean = false,
+): Evaluator<Completion<void>> {
+  const stack: CyclicModuleRecord[] = [];
+  const result = Completion(yield* InnerModuleGraphDFS(root, stack, 0, initialStatus, pendingStatus, action, completeSCC, isEvaluationForImportDefer));
+  if (result instanceof AbruptCompletion) {
+    for (const module of stack) {
+      Assert(module.Status === pendingStatus);
+      postErrorCleanup(module, result as ThrowCompletion);
+      Assert(module.Status !== pendingStatus);
+    }
+    Assert(root.Status !== pendingStatus);
+    return Completion(result as ThrowCompletion);
+  }
+  Assert(root.Status !== initialStatus && root.Status !== pendingStatus);
+  Assert(stack.length === 0);
+  return NormalCompletion(undefined);
+}
+
+function* InnerModuleGraphDFS(
+  module: ModuleRecord,
+  stack: CyclicModuleRecord[],
+  index: number,
+  initialStatus: 'unlinked' | 'linked',
+  pendingStatus: 'linking' | 'evaluating',
+  action: (module: ModuleRecord, /* TODO: rebase import-defer spec */ dependenciesList: undefined | ModuleRecord[]) => PlainEvaluator,
+  completeSCC: (module: CyclicModuleRecord, sccRoot: CyclicModuleRecord) => void,
+  /* TODO: rebase import-defer spec */ isEvaluationForImportDefer: boolean = false,
+): Evaluator<Completion<number>> {
   if (!(module instanceof CyclicModuleRecord)) {
-    Q(module.Link());
-    return index;
+    Q(yield* action(module, undefined));
+    return NormalCompletion(index);
   }
-  if (module.Status === 'linking' || module.Status === 'linked' || module.Status === 'evaluating-async' || module.Status === 'evaluated') {
-    return index;
+  if (module.Status === pendingStatus) {
+    return NormalCompletion(index);
   }
-  Assert(module.Status === 'unlinked');
-  module.Status = 'linking';
+  if (module.Status !== initialStatus) {
+    Q(yield* action(module, undefined));
+    return NormalCompletion(index);
+  }
+  Assert(module.Status === initialStatus);
+  module.Status = pendingStatus;
   const moduleIndex = index;
   module.DFSAncestorIndex = index;
   index += 1;
+  let descendantsList: ModuleRecord[];
+  if (surroundingAgent.feature('import-defer')) {
+    /** https://tc39.es/proposal-defer-import-eval/#sec-innermoduleevaluation */
+    // TODO: Move this once the import-defer spec is rebased on the ModuleGraphDFS
+    // refactor.
+    descendantsList = [];
+    for (const request of module.RequestedModules) {
+      const requiredModule = GetImportedModule(module, request);
+      if (isEvaluationForImportDefer && request.Phase === 'defer') {
+        const additionalModules = GatherAsynchronousTransitiveDependencies(requiredModule);
+        for (const additionalModule of additionalModules) {
+          if (!descendantsList.includes(additionalModule)) {
+            descendantsList.push(additionalModule);
+          }
+        }
+      } else if (!descendantsList.includes(requiredModule)) {
+        descendantsList.push(requiredModule);
+      }
+    }
+  }
   stack.push(module);
-  for (const required of module.RequestedModules) {
-    const requiredModule = GetImportedModule(module, required);
-    index = Q(InnerModuleLinking(requiredModule, stack, index));
+  for (const required of surroundingAgent.feature('import-defer') ? descendantsList! : module.RequestedModules) {
+    const requiredModule = surroundingAgent.feature('import-defer') ? required as ModuleRecord : GetImportedModule(module, required as ModuleRequestRecord);
+    index = Q(yield* InnerModuleGraphDFS(requiredModule, stack, index, initialStatus, pendingStatus, action, completeSCC));
     if (requiredModule instanceof CyclicModuleRecord) {
-      Assert(requiredModule.Status === 'linking' || requiredModule.Status === 'linked' || requiredModule.Status === 'evaluating-async' || requiredModule.Status === 'evaluated');
-      Assert((requiredModule.Status === 'linking') === stack.includes(requiredModule));
-      if (requiredModule.Status === 'linking') {
+      Assert(requiredModule.Status !== initialStatus);
+      Assert((requiredModule.Status === pendingStatus) === stack.includes(requiredModule));
+      if (requiredModule.Status === pendingStatus) {
         module.DFSAncestorIndex = Math.min(module.DFSAncestorIndex, requiredModule.DFSAncestorIndex!);
       }
     }
   }
-  Q((module as SourceTextModuleRecord).InitializeEnvironment());
+  Q(yield* action(module, descendantsList!));
   Assert(stack.indexOf(module) === stack.lastIndexOf(module));
   Assert(module.DFSAncestorIndex <= moduleIndex);
   if (module.DFSAncestorIndex === moduleIndex) {
@@ -173,13 +230,15 @@ export function InnerModuleLinking(module: AbstractModuleRecord, stack: CyclicMo
     while (done === false) {
       const requiredModule = stack.pop();
       Assert(requiredModule instanceof CyclicModuleRecord);
-      requiredModule.Status = 'linked';
+      Assert(requiredModule.Status === pendingStatus || requiredModule.Status === 'evaluating-async' || requiredModule.Status === 'evaluated');
+      completeSCC(requiredModule, module);
+      Assert(requiredModule.Status !== pendingStatus);
       if (requiredModule === module) {
         done = true;
       }
     }
   }
-  return index;
+  return NormalCompletion(index);
 }
 
 /** https://tc39.es/ecma262/#sec-EvaluateModuleSync */
@@ -208,107 +267,6 @@ export function* EvaluateModuleSync(module: ModuleRecord): PlainEvaluator<undefi
   }
   // 5. Return unused.
   return undefined;
-}
-
-/** https://tc39.es/ecma262/#sec-innermoduleevaluation */
-export function* InnerModuleEvaluation(module: AbstractModuleRecord, stack: CyclicModuleRecord[], index: number): PlainEvaluator<number> {
-  if (!(module instanceof CyclicModuleRecord)) {
-    Q(yield* EvaluateModuleSync(module));
-    return NormalCompletion(index);
-  }
-  if (module.Status === 'evaluating-async' || module.Status === 'evaluated') {
-    const cycleRoot = module.CycleRoot!;
-    Assert(cycleRoot.Status === 'evaluating-async' || cycleRoot.Status === 'evaluated');
-    if (cycleRoot.EvaluationError === undefined) {
-      return NormalCompletion(index);
-    } else {
-      return cycleRoot.EvaluationError;
-    }
-  }
-  if (module.Status === 'evaluating') {
-    return NormalCompletion(index);
-  }
-  Assert(module.Status === 'linked');
-  module.Status = 'evaluating';
-  const moduleIndex = index;
-  module.DFSAncestorIndex = index;
-  index += 1;
-  let evaluationList: ModuleRecord[];
-  if (surroundingAgent.feature('import-defer')) {
-    /** https://tc39.es/proposal-defer-import-eval/#sec-innermoduleevaluation */
-    evaluationList = [];
-    for (const request of module.RequestedModules) {
-      const requiredModule = GetImportedModule(module, request);
-      if (request.Phase === 'defer') {
-        const additionalModules = GatherAsynchronousTransitiveDependencies(requiredModule);
-        for (const additionalModule of additionalModules) {
-          if (!evaluationList.includes(additionalModule)) {
-            evaluationList.push(additionalModule);
-          }
-        }
-      } else if (!evaluationList.includes(requiredModule)) {
-        evaluationList.push(requiredModule);
-      }
-    }
-  }
-  stack.push(module);
-  for (const required of surroundingAgent.feature('import-defer') ? evaluationList! : module.RequestedModules) {
-    const requiredModule: ModuleRecord | CyclicModuleRecord = surroundingAgent.feature('import-defer') ? required as ModuleRecord : GetImportedModule(module, required as ModuleRequestRecord) as CyclicModuleRecord;
-    index = Q(yield* InnerModuleEvaluation(requiredModule, stack, index));
-    if (requiredModule instanceof CyclicModuleRecord) {
-      Assert(requiredModule.Status === 'evaluating' || requiredModule.Status === 'evaluating-async' || requiredModule.Status === 'evaluated');
-      Assert((requiredModule.Status === 'evaluating') === stack.includes(requiredModule));
-      if (requiredModule.Status === 'evaluating') {
-        module.DFSAncestorIndex = Math.min(module.DFSAncestorIndex, requiredModule.DFSAncestorIndex!);
-      }
-    }
-  }
-  module.PendingAsyncDependencies = 0;
-  for (const required of surroundingAgent.feature('import-defer') ? evaluationList! : module.RequestedModules) {
-    let requiredModule: ModuleRecord | CyclicModuleRecord = surroundingAgent.feature('import-defer') ? required as ModuleRecord : GetImportedModule(module, required as ModuleRequestRecord) as CyclicModuleRecord;
-    if (requiredModule instanceof CyclicModuleRecord) {
-      Assert(requiredModule.Status === 'evaluating' || requiredModule.Status === 'evaluating-async' || requiredModule.Status === 'evaluated');
-      Assert((requiredModule.Status === 'evaluating') === stack.includes(requiredModule));
-      if (requiredModule.Status === 'evaluating-async' || requiredModule.Status === 'evaluated') {
-        (requiredModule as CyclicModuleRecord) = requiredModule.CycleRoot!;
-        Assert(requiredModule.Status === 'evaluating-async' || requiredModule.Status === 'evaluated');
-        Assert(requiredModule.EvaluationError === undefined);
-      }
-      if (typeof requiredModule.AsyncEvaluationOrder === 'number') {
-        module.PendingAsyncDependencies += 1;
-        requiredModule.AsyncParentModules.push(module);
-      }
-    }
-  }
-  if (module.PendingAsyncDependencies > 0 || module.HasTLA === Value.true) {
-    Assert(module.AsyncEvaluationOrder === 'unset');
-    module.AsyncEvaluationOrder = IncrementModuleAsyncEvaluationCount();
-    if (module.PendingAsyncDependencies === 0) {
-      X(yield* ExecuteAsyncModule(module));
-    }
-  } else {
-    Q(yield* module.ExecuteModule());
-  }
-  Assert(stack.indexOf(module) === stack.lastIndexOf(module));
-  Assert(module.DFSAncestorIndex <= moduleIndex);
-  if (module.DFSAncestorIndex === moduleIndex) {
-    let done = false;
-    while (done === false) {
-      const requiredModule = stack.pop();
-      Assert(requiredModule instanceof CyclicModuleRecord);
-      Assert(typeof requiredModule.AsyncEvaluationOrder === 'number' || requiredModule.AsyncEvaluationOrder === 'unset');
-      if (requiredModule.AsyncEvaluationOrder === 'unset') {
-        requiredModule.Status = 'evaluated';
-      } else {
-        requiredModule.Status = 'evaluating-async';
-      }
-      if (requiredModule === module) {
-        done = true;
-      }
-      requiredModule.CycleRoot = module;
-    }
-  }
-  return index;
 }
 
 /* [import-defer] */
@@ -358,7 +316,7 @@ export function GatherAsynchronousTransitiveDependencies(module: ModuleRecord, s
 }
 
 /** https://tc39.es/ecma262/#sec-execute-async-module */
-function* ExecuteAsyncModule(module: CyclicModuleRecord) {
+export function* ExecuteAsyncModule(module: CyclicModuleRecord) {
   // 1. Assert: module.[[Status]] is evaluating or evaluating-async.
   Assert(module.Status === 'evaluating' || module.Status === 'evaluating-async');
   // 2. Assert: module.[[HasTLA]] is true.

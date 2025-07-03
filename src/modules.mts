@@ -3,21 +3,26 @@ import {
   Value, JSStringValue, ObjectValue, UndefinedValue, BooleanValue,
   NullValue,
 } from './value.mts';
-import { ExecutionContext, surroundingAgent, type GCMarker } from './host-defined/engine.mts';
+import {
+  ExecutionContext,
+  IncrementModuleAsyncEvaluationCount,
+  surroundingAgent,
+  type GCMarker,
+} from './host-defined/engine.mts';
 import {
   Assert,
   Call,
   NewPromiseCapability,
   GetImportedModule,
   GetModuleNamespace,
-  InnerModuleEvaluation,
-  InnerModuleLinking,
   InnerModuleLoading,
   SameValue,
   AsyncBlockStart,
   PromiseCapabilityRecord,
   GraphLoadingState,
   Realm,
+  ModuleGraphDFS,
+  ExecuteAsyncModule,
 } from './abstract-ops/all.mts';
 import {
   VarScopedDeclarations,
@@ -31,18 +36,18 @@ import { InstantiateFunctionObject } from './runtime-semantics/all.mts';
 import {
   Completion,
   NormalCompletion,
-  AbruptCompletion,
   EnsureCompletion,
   Q, X, ThrowCompletion,
   IfAbruptRejectPromise,
 } from './completion.mts';
-import { JSStringSet, type Mutable } from './helpers.mts';
+import { JSStringSet, skipDebugger, type Mutable } from './helpers.mts';
 import {
   Evaluate, type Evaluator, type PlainEvaluator, type ValueEvaluator,
 } from './evaluator.mts';
 import type { ParseNode } from './parser/ParseNode.mts';
 import type {
   ImportAttributeRecord,
+  ModuleRecord,
   ModuleRequestRecord,
   PlainCompletion, PromiseObject,
 } from '#self';
@@ -186,34 +191,26 @@ export abstract class CyclicModuleRecord extends AbstractModuleRecord {
   }
 
   /** https://tc39.es/ecma262/#sec-moduledeclarationlinking */
-  Link() {
+  Link(): PlainCompletion<void> {
     const module = this;
-    // 1. Assert: module.[[Status]] is unlinked, linked, evaluating-async, or evaluated.
     Assert(module.Status === 'unlinked' || module.Status === 'linked' || module.Status === 'evaluating-async' || module.Status === 'evaluated');
-    // 2. Let stack be a new empty List.
-    const stack: CyclicModuleRecord[] = [];
-    // 3. Let result be Completion(InnerModuleLinking(module, stack, 0)).
-    const result = InnerModuleLinking(module, stack, 0);
-    // 5. If result is an abrupt completion, then
-    if (result instanceof AbruptCompletion) {
-      // a. For each Cyclic Module Record m of stack, do
-      for (const m of stack) {
-        // i. Assert: m.[[Status]] is linking.
-        Assert(m.Status === 'linking');
-        // ii. Set m.[[Status]] to unlinked.
-        m.Status = 'unlinked';
+    const dfsInitialStatus = 'unlinked';
+    const dfsPendingStatus = 'linking';
+    const dfsAction = function* dfsAction(m: ModuleRecord): PlainEvaluator {
+      if (!(m instanceof CyclicModuleRecord)) {
+        Q(m.Link());
+      } else if ((m as CyclicModuleRecord).Status === 'linking') {
+        Q((m as SourceTextModuleRecord).InitializeEnvironment());
       }
-      // b. Assert: module.[[Status]] is unlinked.
-      Assert(module.Status === 'unlinked');
-      // c. Return result.
-      return result;
-    }
-    // 6. Assert: module.[[Status]] is linked, evaluating-async, or evaluated.
-    Assert(module.Status === 'linked' || module.Status === 'evaluating-async' || module.Status === 'evaluated');
-    // 7. Assert: stack is empty.
-    Assert(stack.length === 0);
-    // 8. Return unused.
-    return NormalCompletion(undefined);
+    };
+    const dfsSCCcompletion = (m: CyclicModuleRecord): void => {
+      m.Status = 'linked';
+    };
+    const dfsPostErrorCleanup = (m: CyclicModuleRecord): void => {
+      m.Status = 'unlinked';
+    };
+    Q(skipDebugger(ModuleGraphDFS(module, dfsInitialStatus, dfsPendingStatus, dfsAction, dfsSCCcompletion, dfsPostErrorCleanup)));
+    return undefined;
   }
 
   /** https://tc39.es/ecma262/#sec-moduleevaluation */
@@ -248,51 +245,74 @@ export abstract class CyclicModuleRecord extends AbstractModuleRecord {
       // a. Return module.[[TopLevelCapability]].[[Promise]].
       return module.TopLevelCapability.Promise;
     }
-    // 4. Let stack be a new empty List.
-    const stack: CyclicModuleRecord[] = [];
-    // (*TopLevelAwait) 6. Let capability be ! NewPromiseCapability(%Promise%).
+    // 5. Let capability be ! NewPromiseCapability(%Promise%).
     const capability = X(NewPromiseCapability(surroundingAgent.intrinsic('%Promise%')));
-    // (*TopLevelAwait) 7. Set module.[[TopLevelCapability]] to capability.
+    // 6. Set module.[[TopLevelCapability]] to capability.
     module.TopLevelCapability = capability;
-    // 5. Let result be InnerModuleEvaluation(module, stack, 0).
-    const result = yield* InnerModuleEvaluation(module, stack, 0);
-    // 6. If result is an abrupt completion, then
-    if (result instanceof AbruptCompletion) {
-      // a. For each Cyclic Module Record m in stack, do
-      for (const m of stack) {
-        // i. Assert: m.[[Status]] is evaluating.
-        Assert(m.Status === 'evaluating');
-        // ii. Assert: m.[[AsyncEvaluationOrder]] is unset.
-        Assert(m.AsyncEvaluationOrder === 'unset');
-        // iii. Set m.[[Status]] to evaluated.
+
+    const dfsInitialStatus = 'linked';
+    const dfsPendingStatus = 'evaluating';
+    const dfsAction = function* dfsAction(m: ModuleRecord, /* TODO: rebase import-defer spec */ descendantsList: undefined | ModuleRecord[]): PlainEvaluator {
+      if (!(m instanceof CyclicModuleRecord)) {
+        Q(yield* m.Evaluate());
+      } else if (m.Status === 'evaluating-async' || m.Status === 'evaluated') {
+        const cycleRoot = m.CycleRoot!;
+        Assert(cycleRoot.Status === 'evaluated' || cycleRoot.Status === 'evaluating-async');
+        Q(cycleRoot.EvaluationError);
+      } else {
+        m.PendingAsyncDependencies = 0;
+        for (const request of surroundingAgent.feature('import-defer') ? descendantsList! : m.RequestedModules) {
+          let requiredModule = surroundingAgent.feature('import-defer') ? request as ModuleRecord : GetImportedModule(module, request as ModuleRequestRecord);
+          if (requiredModule instanceof CyclicModuleRecord) {
+            Assert(requiredModule.Status === 'evaluating' || requiredModule.Status === 'evaluating-async' || requiredModule.Status === 'evaluated');
+            if (requiredModule.Status === 'evaluating-async' || requiredModule.Status === 'evaluated') {
+              (requiredModule as CyclicModuleRecord) = requiredModule.CycleRoot!;
+              Assert(requiredModule.Status === 'evaluating-async' || requiredModule.Status === 'evaluated');
+              Assert(requiredModule.EvaluationError === undefined);
+            }
+            if (typeof requiredModule.AsyncEvaluationOrder === 'number') {
+              m.PendingAsyncDependencies += 1;
+              requiredModule.AsyncParentModules.push(m);
+            }
+          }
+        }
+        if (m.PendingAsyncDependencies > 0 || m.HasTLA === Value.true) {
+          Assert(m.AsyncEvaluationOrder === 'unset');
+          m.AsyncEvaluationOrder = IncrementModuleAsyncEvaluationCount();
+          if (m.PendingAsyncDependencies === 0) {
+            yield* ExecuteAsyncModule(m);
+          }
+        } else {
+          Q(yield* m.ExecuteModule());
+        }
+      }
+    };
+    const dfsSCCcompletion = (m: CyclicModuleRecord, sccRoot: CyclicModuleRecord): void => {
+      Assert(typeof m.AsyncEvaluationOrder === 'number' || m.AsyncEvaluationOrder === 'unset');
+      if (m.AsyncEvaluationOrder === 'unset') {
         m.Status = 'evaluated';
-        // iv. Set m.[[EvaluationError]] to result.
-        m.EvaluationError = result;
-        // v. Set _m_.[[CycleRoot]] to _m_.
-        m.CycleRoot = m;
+      } else {
+        m.Status = 'evaluating-async';
       }
-      // b. Assert: module.[[Status]] is evaluated and module.[[EvaluationError]] is result.
-      Assert(module.Status === 'evaluated' && module.EvaluationError === result);
-      // c. Return result.
-      // c. (*TopLevelAwait) Perform ! Call(capability.[[Reject]], undefined, «result.[[Value]]»).
-      X(Call(capability.Reject, Value.undefined, [result.Value]));
-    } else { // (*TopLevelAwait) 10. Otherwise,
-      // a. Assert: module.[[Status]] is evaluating-async or evaluated.
-      Assert(module.Status === 'evaluating-async' || module.Status === 'evaluated');
-      // b. Assert: module.[[EvaluationError]] is ~empty~.
-      Assert(module.EvaluationError === undefined);
-      // c. If module.[[Status]] is evaluated, then
-      if (module.Status === 'evaluated') {
-        // i. Assert: module.[[AsyncEvaluationOrder]] is not an integer.
-        Assert(typeof module.AsyncEvaluationOrder !== 'number');
-        // ii. Perform ! Call(capability.[[Resolve]], undefined, «undefined»).
-        X(Call(capability.Resolve, Value.undefined, [Value.undefined]));
-      }
-      // d. Assert: stack is empty.
-      Assert(stack.length === 0);
+      m.CycleRoot = sccRoot;
+    };
+    const dfsPostErrorCleanup = (m: CyclicModuleRecord, errorCompletion: ThrowCompletion): void => {
+      Assert(m.AsyncEvaluationOrder === 'unset');
+      m.Status = 'evaluated';
+      m.EvaluationError = errorCompletion;
+      // https://github.com/tc39/ecma262/pull/3583. Multiple test262 crash without that PR.
+      m.CycleRoot = m;
+    };
+
+    const result = Completion(yield* ModuleGraphDFS(module, dfsInitialStatus, dfsPendingStatus, dfsAction, dfsSCCcompletion, dfsPostErrorCleanup, /* TODO: rebase import-defer spec */ true));
+    IfAbruptRejectPromise(result, capability);
+    Assert(module.Status === 'evaluating-async' || module.Status === 'evaluated');
+    Assert(module.EvaluationError === undefined);
+    if (module.Status === 'evaluated') {
+      // https://github.com/tc39/ecma262/pull/3613
+      Assert(module.AsyncEvaluationOrder === 'unset' || module.AsyncEvaluationOrder === 'done');
+      X(Call(capability.Resolve, Value.undefined, [Value.undefined]));
     }
-    // 9. Return undefined.
-    // (*TopLevelAwait) 11. Return capability.[[Promise]].
     return capability.Promise;
   }
 
