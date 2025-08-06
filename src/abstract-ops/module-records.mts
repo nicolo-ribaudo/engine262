@@ -200,8 +200,9 @@ export function InnerModuleLinking(module: AbstractModuleRecord, stack: CyclicMo
   module.DFSAncestorIndex = index;
   index += 1;
   stack.push(module);
-  for (const required of module.RequestedModules) {
-    const requiredModule = GetImportedModule(module, required);
+  const linkingList = surroundingAgent.feature('export-defer') ? BuildLinkingList(module, module.RequestedModules) : undefined;
+  for (const required of surroundingAgent.feature('export-defer') ? linkingList! : module.RequestedModules) {
+    const requiredModule = surroundingAgent.feature('export-defer') ? required as ModuleRecord : GetImportedModule(module, required as ModuleRequestRecord);
     index = Q(InnerModuleLinking(requiredModule, stack, index));
     if (requiredModule instanceof CyclicModuleRecord) {
       Assert(requiredModule.Status === 'linking' || requiredModule.Status === 'linked' || requiredModule.Status === 'evaluating-async' || requiredModule.Status === 'evaluated');
@@ -226,6 +227,21 @@ export function InnerModuleLinking(module: AbstractModuleRecord, stack: CyclicMo
     }
   }
   return index;
+}
+
+function BuildLinkingList(referrer: CyclicModuleRecord, moduleRequests: readonly ModuleRequestRecord[]): ModuleRecord[] {
+  const linkingList: ModuleRecord[] = [];
+  for (const request of moduleRequests) {
+    const requiredModule = GetImportedModule(referrer, request);
+    if (!linkingList.includes(requiredModule)) {
+      linkingList.push(requiredModule);
+    }
+    if (requiredModule instanceof CyclicModuleRecord) {
+      const indirectRequests = GetOptionalIndirectExportsModuleRequests(requiredModule, request.ImportedNames!);
+      ListAppendUnique(linkingList, BuildLinkingList(requiredModule, indirectRequests));
+    }
+  }
+  return linkingList;
 }
 
 /** https://tc39.es/ecma262/#sec-EvaluateModuleSync */
@@ -280,7 +296,9 @@ export function* InnerModuleEvaluation(module: AbstractModuleRecord, stack: Cycl
   module.AsyncParentModules = [];
   index += 1;
   let evaluationList: ModuleRecord[];
-  if (surroundingAgent.feature('import-defer')) {
+  if (surroundingAgent.feature('export-defer')) {
+    evaluationList = BuildEvaluationList(module, module.RequestedModules);
+  } else if (surroundingAgent.feature('import-defer')) {
     /** https://tc39.es/proposal-defer-import-eval/#sec-innermoduleevaluation */
     evaluationList = [];
     for (const request of module.RequestedModules) {
@@ -298,8 +316,8 @@ export function* InnerModuleEvaluation(module: AbstractModuleRecord, stack: Cycl
     }
   }
   stack.push(module);
-  for (const required of surroundingAgent.feature('import-defer') ? evaluationList! : module.RequestedModules) {
-    let requiredModule: ModuleRecord | CyclicModuleRecord = surroundingAgent.feature('import-defer') ? required as ModuleRecord : GetImportedModule(module, required as ModuleRequestRecord) as CyclicModuleRecord;
+  for (const required of surroundingAgent.feature('import-defer') || surroundingAgent.feature('export-defer') ? evaluationList! : module.RequestedModules) {
+    let requiredModule: ModuleRecord | CyclicModuleRecord = surroundingAgent.feature('import-defer') || surroundingAgent.feature('export-defer') ? required as ModuleRecord : GetImportedModule(module, required as ModuleRequestRecord) as CyclicModuleRecord;
     index = Q(yield* InnerModuleEvaluation(requiredModule, stack, index));
     if (requiredModule instanceof CyclicModuleRecord) {
       Assert(requiredModule.Status === 'evaluating' || requiredModule.Status === 'evaluating-async' || requiredModule.Status === 'evaluated');
@@ -348,6 +366,31 @@ export function* InnerModuleEvaluation(module: AbstractModuleRecord, stack: Cycl
     }
   }
   return index;
+}
+
+function BuildEvaluationList(referrer: CyclicModuleRecord, moduleRequests: readonly ModuleRequestRecord[]): ModuleRecord[] {
+  const evaluationList: ModuleRecord[] = [];
+  for (const request of moduleRequests) {
+    const requiredModule = GetImportedModule(referrer, request);
+    if (request.Phase === 'defer') {
+      ListAppendUnique(evaluationList, GatherAsynchronousTransitiveDependencies(requiredModule));
+    } else if (!evaluationList.includes(requiredModule)) {
+      evaluationList.push(requiredModule);
+    }
+    if (requiredModule instanceof CyclicModuleRecord) {
+      const indirectRequests = GetOptionalIndirectExportsModuleRequests(requiredModule, request.ImportedNames!);
+      ListAppendUnique(evaluationList, BuildEvaluationList(requiredModule, indirectRequests));
+    }
+  }
+  return evaluationList;
+}
+
+function ListAppendUnique<T>(list1: T[], list2: T[]) {
+  for (const r of list2) {
+    if (!list1.includes(r)) {
+      list1.push(r);
+    }
+  }
 }
 
 /* [import-defer] */
