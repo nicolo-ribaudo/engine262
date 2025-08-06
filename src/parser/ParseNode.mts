@@ -2132,6 +2132,7 @@ export namespace ParseNode {
     readonly AssignmentExpression?: AssignmentExpressionOrHigher;
     readonly Declaration?: Declaration;
     readonly VariableStatement?: VariableStatement;
+    readonly Phase?: 'defer' | 'evaluation';
     readonly ExportFromClause?: ExportFromClauseLike;
     readonly FromClause?: FromClause;
     readonly WithClause?: WithClause;

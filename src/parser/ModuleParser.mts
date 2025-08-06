@@ -165,7 +165,14 @@ export abstract class ModuleParser extends StatementParser {
         this.scope.exports.add('default');
       }
     } else {
-      switch (this.peek().type) {
+      const Defer = this.feature('export-defer') && this.eat('defer');
+
+      const nextType = this.peek().type;
+      if (Defer && nextType !== Token.MUL && nextType !== Token.LBRACE) {
+        this.raiseEarly('ExportDeferRequiresFrom', node);
+      }
+
+      switch (nextType) {
         case Token.CONST:
           node.Declaration = this.parseLexicalDeclaration();
           this.scope.declare(node.Declaration, 'export');
@@ -185,12 +192,18 @@ export abstract class ModuleParser extends StatementParser {
         case Token.LBRACE: {
           const NamedExports = this.parseNamedExports();
           if (this.test('from')) {
+            if (this.feature('export-defer')) {
+              node.Phase = Defer ? 'defer' : 'evaluation';
+            }
             node.ExportFromClause = NamedExports;
             node.FromClause = this.parseFromClause();
             if (this.test(Token.WITH)) {
               node.WithClause = this.parseWithClause();
             }
           } else {
+            if (this.feature('export-defer') && Defer) {
+              this.raiseEarly('ExportDeferRequiresFrom', node);
+            }
             NamedExports.ExportsList.forEach((n) => {
               if (n.localName.type === 'StringLiteral') {
                 this.raiseEarly('UnexpectedToken', n.localName);
@@ -208,6 +221,11 @@ export abstract class ModuleParser extends StatementParser {
           if (this.eat('as')) {
             inner.ModuleExportName = this.parseModuleExportName();
             this.scope.declare(inner.ModuleExportName, 'export');
+          } else if (this.feature('export-defer') && Defer) {
+            this.raiseEarly('ExportDeferRequiresNames', inner);
+          }
+          if (this.feature('export-defer')) {
+            node.Phase = Defer ? 'defer' : 'evaluation';
           }
           node.ExportFromClause = this.finishNode(inner, 'ExportFromClause');
           node.FromClause = this.parseFromClause();

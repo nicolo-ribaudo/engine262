@@ -56,6 +56,11 @@ export const FEATURES = ([
     flag: 'import-defer',
     url: 'https://tc39.es/proposal-defer-import-eval/',
   },
+  {
+    name: 'export defer',
+    flag: 'export-defer',
+    url: 'https://tc39.es/proposal-deferred-reexports/',
+  },
 ]) as const satisfies Engine262Feature[];
 Object.freeze(FEATURES);
 FEATURES.forEach(Object.freeze);

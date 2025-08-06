@@ -59,6 +59,8 @@ export const DuplicateConstructor = () => 'A class may only have one constructor
 export const DuplicateExports = () => 'Module cannot contain duplicate exports';
 export const DuplicateImportAttribute = (a: string) => `Duplicate import attribute ${i(a)}`;
 export const DuplicateProto = () => 'An object literal may only have one __proto__ property';
+/* [export-defer] */ export const ExportDeferRequiresFrom = () => '"export defer" requires a "from" clause.';
+/* [export-defer] */ export const ExportDeferRequiresNames = () => '"export defer" cannot be used with "export * from". Explicitly list the exported names.';
 export const FunctionDeclarationStatement = () => 'Functions can only be declared at top level or inside a block';
 export const GeneratorRunning = () => 'Cannot manipulate a running generator';
 export const IllegalBreakContinue = (isBreak: boolean) => `Illegal ${isBreak ? 'break' : 'continue'} statement`;
