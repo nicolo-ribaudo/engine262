@@ -4,6 +4,7 @@ import type { ParseNode } from '../parser/ParseNode.mts';
 import {
   BoundNames, ModuleRequests, ExportEntriesForModule, type ModuleRequestRecord,
 } from './all.mts';
+import { surroundingAgent } from '#self';
 
 export function ExportEntries(node: ParseNode | readonly ParseNode[]): ExportEntry[] {
   if (isArray(node)) {
@@ -24,6 +25,10 @@ export function ExportEntries(node: ParseNode | readonly ParseNode[]): ExportEnt
     case 'ExportDeclaration':
       switch (true) {
         case !!node.ExportFromClause && !!node.FromClause: {
+          if (surroundingAgent.feature('export-defer') && node.Phase === 'defer') {
+            return [];
+          }
+
           // `export` ExportFromClause FromClause WithClause? `;`
           // 1. Let module be the sole element of ModuleRequests of FromClause.
           const module = ModuleRequests(node)[0];
@@ -126,4 +131,25 @@ export interface ExportEntry {
   readonly ImportName: JSStringValue | NullValue | 'all' | 'all-but-default';
   readonly LocalName: JSStringValue | NullValue;
   readonly ExportName: JSStringValue | NullValue;
+}
+
+/* [export-defer] https://tc39.es/proposal-deferred-reexports/#sec-static-semantics-exportentries */
+export function OptionalIndirectExportEntries(node: ParseNode): ExportEntry[] {
+  switch (node.type) {
+    case 'Module':
+      if (!node.ModuleBody) {
+        return [];
+      }
+      return OptionalIndirectExportEntries(node.ModuleBody);
+    case 'ModuleBody':
+      return node.ModuleItemList.flatMap(OptionalIndirectExportEntries);
+    case 'ExportDeclaration':
+      if (node.ExportFromClause && node.Phase === 'defer') {
+        const module = ModuleRequests(node, 'include-export-defer')[0];
+        return ExportEntriesForModule(node.ExportFromClause, module);
+      }
+      return [];
+    default:
+      return [];
+  }
 }

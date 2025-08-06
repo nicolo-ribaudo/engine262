@@ -19,6 +19,7 @@ import {
   ImportEntries,
   ExportEntries,
   ImportedLocalNames,
+  OptionalIndirectExportEntries,
 } from './static-semantics/all.mts';
 import {
   isArray, JSStringSet, kInternal, skipDebugger, type Mutable,
@@ -184,6 +185,7 @@ export function ParseModule(sourceText: string, realm: Realm, hostDefined: Modul
       indirectExportEntries.push(ee);
     }
   }
+  const optionalIndirectExportsEntries = surroundingAgent.feature('export-defer') ? OptionalIndirectExportEntries(body) : undefined;
   // 12. Return Source Text Module Record { [[Realm]]: realm, [[Environment]]: undefined, [[Namespace]]: undefined, [[Status]]: unlinked, [[EvaluationError]]: undefined, [[HostDefined]]: hostDefined, [[ECMAScriptCode]]: body, [[Context]]: empty, [[ImportMeta]]: empty, [[RequestedModules]]: requestedModules, [[ImportEntries]]: importEntries, [[LocalExportEntries]]: localExportEntries, [[IndirectExportEntries]]: indirectExportEntries, [[StarExportEntries]]: starExportEntries, [[DFSAncestorIndex]]: undefined }.
   const module = new (hostDefined.SourceTextModuleRecord || SourceTextModuleRecord)({
     Realm: realm,
@@ -200,6 +202,7 @@ export function ParseModule(sourceText: string, realm: Realm, hostDefined: Modul
     ImportEntries: importEntries,
     LocalExportEntries: localExportEntries,
     IndirectExportEntries: indirectExportEntries,
+    OptionalIndirectExportEntries: optionalIndirectExportsEntries,
     StarExportEntries: starExportEntries,
     CycleRoot: undefined,
     HasTLA: body.hasTopLevelAwait ? Value.true : Value.false,

@@ -31,9 +31,10 @@ import {
 import {
   Completion,
   HostGetSupportedImportAttributes,
+  MergeImportedNames,
   ModuleRequestsEqual,
   ReadyForSyncExecution,
-  type Arguments, type ImportAttributeRecord, type ModuleRequestRecord, type PlainEvaluator, type ScriptRecord, type SourceTextModuleRecord,
+  type Arguments, type ImportAttributeRecord, type ModuleRequestRecord, type Mutable, type PlainEvaluator, type ScriptRecord, type SourceTextModuleRecord,
 } from '#self';
 
 /** https://tc39.es/ecma262/#graphloadingstate-record */
@@ -55,33 +56,51 @@ export class GraphLoadingState {
 }
 
 /** https://tc39.es/ecma262/#sec-InnerModuleLoading */
-export function InnerModuleLoading(state: GraphLoadingState, module: AbstractModuleRecord) {
+export function InnerModuleLoading(state: GraphLoadingState, module: AbstractModuleRecord, /* [export-defer] */ importedNames?: 'all' | string[]) {
   // 1. Assert: state.[[IsLoading]] is true.
   Assert(Boolean(state.IsLoading === true)); // this Boolean() is let step 2.d.iii not having a type error.
 
   // 2. If module is a Cyclic Module Record, module.[[Status]] is new, and state.[[Visited]] does not contain module, then
-  if (module instanceof CyclicModuleRecord && module.Status === 'new' && !state.Visited.has(module)) {
+  if (
+    module instanceof CyclicModuleRecord
+    && (surroundingAgent.feature('export-defer')
+      ? true
+      : module.Status === 'new' && !state.Visited.has(module))
+  ) {
+    let requestsToLoad: readonly ModuleRequestRecord[];
+    if (surroundingAgent.feature('export-defer')) {
+      requestsToLoad = [];
+      if (module.Status === 'new' && !state.Visited.has(module)) {
+        state.Visited.add(module);
+        requestsToLoad = module.RequestedModules;
+      }
+      const indirectRequests = GetOptionalIndirectExportsModuleRequests(module, importedNames!);
+      requestsToLoad = requestsToLoad.concat(indirectRequests);
+    } else {
+      state.Visited.add(module);
+    }
+
     // a. Append module to state.[[Visited]].
     state.Visited.add(module);
     // b. Let requestedModulesCount be the number of elements in module.[[RequestedModules]].
-    const requestedModulesCout = module.RequestedModules.length;
+    const requestedModulesCount = (surroundingAgent.feature('export-defer') ? requestsToLoad! : module.RequestedModules).length;
     // c. Set state.[[PendingModulesCount]] to state.[[PendingModulesCount]] + requestedModulesCount.
-    state.PendingModules += requestedModulesCout;
+    state.PendingModules += requestedModulesCount;
     // d. For each ModuleRequest Record request of module.[[RequestedModules]], do
-    for (const request of module.RequestedModules) {
+    for (const request of (surroundingAgent.feature('export-defer') ? requestsToLoad! : module.RequestedModules)) {
       // i. If AllImportAttributesSupported(request.[[Attributes]]) is false, then
       const invalidAttributeKey = AllImportAttributesSupported(request.Attributes);
       if (invalidAttributeKey) {
         // 1. Let error be ThrowCompletion(a newly created SyntaxError object).
         const error = surroundingAgent.Throw('SyntaxError', 'UnsupportedImportAttribute', invalidAttributeKey);
         // 2. Perform ContinueModuleLoading(state, error).
-        ContinueModuleLoading(state, error);
+        ContinueModuleLoading(state, error, /* [export-defer] */ request.ImportedNames);
       } else {
         // ii. Else if module.[[LoadedModules]] contains a LoadedModuleRequest Record record such that ModuleRequestsEqual(record, request) is true, then
         const record = getRecordWithSpecifier(module.LoadedModules, request);
         if (record !== undefined) {
           // 1. Perform InnerModuleLoading(state, record.[[Module]]).
-          InnerModuleLoading(state, record.Module);
+          InnerModuleLoading(state, record.Module, /* [export-defer] */ request.ImportedNames);
         } else { // iii. Else,
           // 1. Perform HostLoadImportedModule(module, request, state.[[HostDefined]], state).
           HostLoadImportedModule(module, request, state.HostDefined, state);
@@ -118,7 +137,7 @@ export function InnerModuleLoading(state: GraphLoadingState, module: AbstractMod
 }
 
 /** https://tc39.es/ecma262/#sec-ContinueModuleLoading */
-export function ContinueModuleLoading(state: GraphLoadingState, result: PlainCompletion<AbstractModuleRecord>) {
+export function ContinueModuleLoading(state: GraphLoadingState, result: PlainCompletion<AbstractModuleRecord>, /* [export-defer] */ importedNames?: 'all' | string[]) {
   // 1. If state.[[IsLoading]] is false, return unused.
   if (state.IsLoading === false) {
     return;
@@ -127,7 +146,7 @@ export function ContinueModuleLoading(state: GraphLoadingState, result: PlainCom
   // 2. If moduleCompletion is a normal completion, then
   if (result instanceof NormalCompletion) {
     // a. Perform InnerModuleLoading(state, moduleCompletion.[[Value]]).
-    InnerModuleLoading(state, result.Value);
+    InnerModuleLoading(state, result.Value, /* [export-defer] */ importedNames);
     // 3. Else,
   } else {
     // a. Set state.[[IsLoading]] to false.
@@ -137,6 +156,33 @@ export function ContinueModuleLoading(state: GraphLoadingState, result: PlainCom
   }
 
   // 4. Return unused.
+}
+
+/* [export-defer] https://tc39.es/proposal-deferred-reexports/#sec-GetOptionalIndirectExportsModuleRequests */
+function GetOptionalIndirectExportsModuleRequests(module: CyclicModuleRecord, importedNames: 'all' | string[]) {
+  const requests: ModuleRequestRecord[] = [];
+  for (const oie of module.OptionalIndirectExportEntries!) {
+    if (importedNames === 'all' || importedNames.includes((oie.ExportName as JSStringValue).stringValue())) {
+      const nextRequest = oie.ModuleRequest as ModuleRequestRecord;
+      const existingRequest = requests.find((r) => ModuleRequestsEqual(r, nextRequest) && r.Phase === nextRequest.Phase);
+      let newImportedNames: 'all' | string[] = 'all';
+      if (oie.ImportName instanceof JSStringValue) {
+        newImportedNames = [oie.ImportName.stringValue()];
+      }
+      if (existingRequest === undefined) {
+        const request: ModuleRequestRecord = {
+          Specifier: nextRequest.Specifier,
+          Attributes: nextRequest.Attributes,
+          Phase: nextRequest.Phase,
+          ImportedNames: newImportedNames,
+        };
+        requests.push(request);
+      } else {
+        (existingRequest as Mutable<ModuleRequestRecord>).ImportedNames = MergeImportedNames(existingRequest.ImportedNames!, newImportedNames);
+      }
+    }
+  }
+  return requests;
 }
 
 /** https://tc39.es/ecma262/#sec-InnerModuleLinking */
@@ -498,7 +544,7 @@ export function FinishLoadingImportedModule(referrer: ScriptRecord | CyclicModul
   // 2. If payload is a GraphLoadingState Record, then
   if (state instanceof GraphLoadingState) {
     // a. Perform ContinueModuleLoading(payload, result).
-    ContinueModuleLoading(state, result);
+    ContinueModuleLoading(state, result, /* [export-defer] */ moduleRequest.ImportedNames);
     // 3. Else,
   } else {
     // a. Perform ContinueDynamicImport(payload, result).

@@ -89,7 +89,7 @@ interface ResolveSetItem {
 
 /** https://tc39.es/ecma262/#sec-abstract-module-records */
 export abstract class AbstractModuleRecord {
-  abstract LoadRequestedModules(hostDefined?: ModuleRecordHostDefined): PromiseObject;
+  abstract LoadRequestedModules(hostDefined?: ModuleRecordHostDefined, /* [export-defer] */ importedNames?: 'all' | string[]): PromiseObject;
 
   abstract GetExportedNames(exportStarSet?: AbstractModuleRecord[]): readonly JSStringValue[];
 
@@ -125,7 +125,7 @@ export abstract class AbstractModuleRecord {
 
 export { AbstractModuleRecord as ModuleRecord };
 
-export type CyclicModuleRecordInit = AbstractModuleInit & Readonly<Pick<CyclicModuleRecord, 'Status' | 'EvaluationError' | 'DFSAncestorIndex' | 'RequestedModules' | 'LoadedModules' | 'CycleRoot' | 'HasTLA' | 'AsyncEvaluationOrder' | 'TopLevelCapability' | 'AsyncParentModules' | 'PendingAsyncDependencies'>>;
+export type CyclicModuleRecordInit = AbstractModuleInit & Readonly<Pick<CyclicModuleRecord, 'Status' | 'EvaluationError' | 'DFSAncestorIndex' | 'RequestedModules' | 'LoadedModules' | 'OptionalIndirectExportEntries' | 'CycleRoot' | 'HasTLA' | 'AsyncEvaluationOrder' | 'TopLevelCapability' | 'AsyncParentModules' | 'PendingAsyncDependencies'>>;
 export type CyclicModuleRecordStatus = 'new' | 'unlinked' | 'linking' | 'linked' | 'evaluating' | 'evaluating-async' | 'evaluated';
 /** https://tc39.es/ecma262/#sec-cyclic-module-records */
 export abstract class CyclicModuleRecord extends AbstractModuleRecord {
@@ -138,6 +138,8 @@ export abstract class CyclicModuleRecord extends AbstractModuleRecord {
   readonly RequestedModules: readonly ModuleRequestRecord[];
 
   readonly LoadedModules: LoadedModuleRequestRecord[];
+
+  /* [export-defer] */ readonly OptionalIndirectExportEntries: readonly ExportEntry[] | undefined;
 
   readonly HasTLA: BooleanValue;
 
@@ -164,12 +166,16 @@ export abstract class CyclicModuleRecord extends AbstractModuleRecord {
     this.TopLevelCapability = init.TopLevelCapability;
     this.AsyncParentModules = init.AsyncParentModules;
     this.PendingAsyncDependencies = init.PendingAsyncDependencies;
+
+    if (surroundingAgent.feature('export-defer')) {
+      this.OptionalIndirectExportEntries = init.OptionalIndirectExportEntries;
+    }
   }
 
   abstract ExecuteModule(capability?: PromiseCapabilityRecord): ValueEvaluator;
 
   /** https://tc39.es/ecma262/#sec-LoadRequestedModules */
-  LoadRequestedModules(hostDefined?: ModuleRecordHostDefined) {
+  LoadRequestedModules(hostDefined?: ModuleRecordHostDefined, /* [export-defer] */ importedNames: 'all' | string[] = 'all') {
     const module = this;
 
     // 2. Let pc be ! NewPromiseCapability(%Promise%).
@@ -180,7 +186,7 @@ export abstract class CyclicModuleRecord extends AbstractModuleRecord {
       HostDefined: hostDefined,
     });
     // 4. Perform InnerModuleLoading(state, module).
-    InnerModuleLoading(state, module);
+    InnerModuleLoading(state, module, /* [export-defer] */ importedNames);
     // 5. Return pc.[[Promise]].
     return pc.Promise;
   }
@@ -369,6 +375,12 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
       // c. Append e.[[ExportName]] to exportedNames.
       exportedNames.push(e.ExportName);
     }
+    if (surroundingAgent.feature('export-defer')) {
+      for (const e of module.OptionalIndirectExportEntries!) {
+        Assert(!(e.ExportName instanceof NullValue));
+        exportedNames.push(e.ExportName);
+      }
+    }
     // 8. For each ExportEntry Record e in module.[[StarExportEntries]], do
     for (const e of module.StarExportEntries) {
       // a. Let requestedModule be GetImportedModule(module, e.[[ModuleRequest]]).
@@ -424,7 +436,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
       }
     }
     // 6. For each ExportEntry Record e in module.[[IndirectExportEntries]], do
-    for (const e of module.IndirectExportEntries) {
+    for (const e of [...module.IndirectExportEntries, ...module.OptionalIndirectExportEntries!]) {
       // a. If SameValue(exportName, e.[[ExportName]]) is true, then
       if (SameValue(exportName, e.ExportName) === Value.true) {
         // i. Let importedModule be GetImportedModule(module, e.[[ModuleRequest]]).
