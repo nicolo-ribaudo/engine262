@@ -3,6 +3,7 @@ import { OutOfRange, isArray } from '../helpers.mts';
 import type { ParseNode } from '../parser/ParseNode.mts';
 import {
   BoundNames, ModuleRequests, ExportEntriesForModule, type ModuleRequestRecord,
+  ExportFromDeclarationModuleRequest,
 } from './all.mts';
 import { surroundingAgent } from '#self';
 
@@ -144,9 +145,9 @@ export function OptionalIndirectExportEntries(node: ParseNode): ExportEntry[] {
     case 'ModuleBody':
       return node.ModuleItemList.flatMap(OptionalIndirectExportEntries);
     case 'ExportDeclaration':
-      if (node.ExportFromClause && node.Phase === 'defer') {
-        const module = ModuleRequests(node, 'include-export-defer')[0];
-        return ExportEntriesForModule(node.ExportFromClause, module);
+      if (node.FromClause && node.Phase === 'defer') {
+        const request = ExportFromDeclarationModuleRequest(node.ExportFromClause!, node.FromClause, node.WithClause);
+        return ExportEntriesForModule(node.ExportFromClause!, request);
       }
       return [];
     default:

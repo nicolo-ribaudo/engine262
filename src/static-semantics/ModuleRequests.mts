@@ -54,7 +54,7 @@ function WithClauseToAttributes(node: ParseNode.WithClause): ImportAttributeReco
   return attributes;
 }
 
-export function ModuleRequests(node: ParseNode, /* [export-defer] */ exportDefer: 'exclude-export-defer' | 'include-export-defer' = 'exclude-export-defer'): ModuleRequestRecord[] {
+export function ModuleRequests(node: ParseNode): ModuleRequestRecord[] {
   switch (node.type) {
     case 'Module':
       if (node.ModuleBody) {
@@ -108,23 +108,38 @@ export function ModuleRequests(node: ParseNode, /* [export-defer] */ exportDefer
       throw new Error('Unreachable: all imports must have either an ImportClause or a ModuleSpecifier');
     case 'ExportDeclaration':
       if (node.FromClause) {
-        if (surroundingAgent.feature('export-defer') && node.Phase === 'defer' && exportDefer === 'exclude-export-defer') {
-          return [];
+        if (surroundingAgent.feature('export-defer')) {
+          if (node.Phase === 'defer') {
+            return [];
+          }
+          return [ExportFromDeclarationModuleRequest(node.ExportFromClause!, node.FromClause, node.WithClause)];
+        } else {
+          const specifier = StringValue(node.FromClause);
+          const attributes = node.WithClause ? WithClauseToAttributes(node.WithClause) : [];
+          return [{
+            Specifier: specifier,
+            Attributes: attributes,
+            /* [import-defer] */ Phase: 'evaluation',
+            /* [export-defer] */ ImportedNames: undefined,
+          }];
         }
-
-        const specifier = StringValue(node.FromClause);
-        const attributes = node.WithClause ? WithClauseToAttributes(node.WithClause) : [];
-        return [{
-          Specifier: specifier,
-          Attributes: attributes,
-          /* [import-defer] */ Phase: 'evaluation',
-          /* [export-defer] */ ImportedNames: surroundingAgent.feature('export-defer') ? ImportedNames(node.ExportFromClause!) : undefined,
-        }];
       }
       return [];
     default:
       return [];
   }
+}
+
+/* [export-defer] https://tc39.es/proposal-deferred-reexports/#sec-ExportFromDeclarationModuleRequest */
+export function ExportFromDeclarationModuleRequest(exportFromClause: ParseNode.ExportFromClauseLike, fromClause: ParseNode.FromClause, withClause?: ParseNode.WithClause): ModuleRequestRecord {
+  const specifier = StringValue(fromClause);
+  const attributes = withClause ? WithClauseToAttributes(withClause) : [];
+  return {
+    Specifier: specifier,
+    Attributes: attributes,
+    Phase: 'evaluation',
+    ImportedNames: ImportedNames(exportFromClause),
+  };
 }
 
 function ImportedNames(node: ParseNode): 'all' | string[] {
