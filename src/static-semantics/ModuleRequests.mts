@@ -150,7 +150,7 @@ function ImportedNames(node: ParseNode): 'all' | string[] {
       return 'all';
     case 'ImportSpecifier':
       if (node.ModuleExportName) {
-        return ImportedNames(node.ModuleExportName);
+        return [StringValue(node.ModuleExportName).value];
       }
       return [StringValue(node.ImportedBinding).value];
     case 'ExportSpecifier':
