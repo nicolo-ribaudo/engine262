@@ -156,6 +156,14 @@ const InternalMethods = {
     const binding = m.ResolveExport(P as JSStringValue);
     // 7. Assert: binding is a ResolvedBinding Record.
     Assert(binding instanceof ResolvedBindingRecord);
+    if (surroundingAgent.feature('export-defer')) {
+      for (const deferredModule of binding.DeferredModules) {
+        if (ReadyForSyncExecution(deferredModule) === Value.false) {
+          return surroundingAgent.Throw('TypeError', 'DeferredModuleNotReady', deferredModule);
+        }
+        Q(yield* EvaluateModuleSync(deferredModule));
+      }
+    }
     // 8. Let targetModule be binding.[[Module]].
     const targetModule = binding.Module;
     // 9. Assert: targetModule is not undefined.

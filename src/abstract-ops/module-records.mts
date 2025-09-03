@@ -368,6 +368,8 @@ export function* InnerModuleEvaluation(module: AbstractModuleRecord, stack: Cycl
   return index;
 }
 
+/* [export-defer] */
+/** https://tc39.es/proposal-deferred-reexports/#sec-BuildEvaluationList  */
 function BuildEvaluationList(referrer: CyclicModuleRecord, moduleRequests: readonly ModuleRequestRecord[]): ModuleRecord[] {
   const evaluationList: ModuleRecord[] = [];
   for (const request of moduleRequests) {
@@ -378,13 +380,19 @@ function BuildEvaluationList(referrer: CyclicModuleRecord, moduleRequests: reado
       evaluationList.push(requiredModule);
     }
     if (requiredModule instanceof CyclicModuleRecord) {
-      const indirectRequests = GetOptionalIndirectExportsModuleRequests(requiredModule, request.ImportedNames!);
+      let importedNames = request.ImportedNames!;
+      if (importedNames === 'all') {
+        importedNames = [];
+      }
+      const indirectRequests = GetOptionalIndirectExportsModuleRequests(requiredModule, importedNames);
       ListAppendUnique(evaluationList, BuildEvaluationList(requiredModule, indirectRequests));
     }
   }
   return evaluationList;
 }
 
+/* [export-defer] */
+/** https://tc39.es/proposal-deferred-reexports/#sec-ListAppendUnique  */
 function ListAppendUnique<T>(list1: T[], list2: T[]) {
   for (const r of list2) {
     if (!list1.includes(r)) {

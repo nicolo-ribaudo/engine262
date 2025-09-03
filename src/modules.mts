@@ -60,15 +60,19 @@ export class ResolvedBindingRecord {
 
   readonly BindingName: 'namespace' | JSStringValue;
 
-  constructor({ Module, BindingName }: Pick<ResolvedBindingRecord, 'BindingName' | 'Module'>) {
+  readonly DeferredModules: AbstractModuleRecord[];
+
+  constructor({ Module, BindingName, DeferredModules }: Pick<ResolvedBindingRecord, 'BindingName' | 'Module' | 'DeferredModules'>) {
     Assert(Module instanceof AbstractModuleRecord);
     Assert(BindingName === 'namespace' || BindingName instanceof JSStringValue);
     this.Module = Module;
     this.BindingName = BindingName;
+    this.DeferredModules = DeferredModules;
   }
 
   mark(m: GCMarker) {
     m(this.Module);
+    this.DeferredModules.forEach(m);
   }
 }
 
@@ -432,6 +436,7 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
         return new ResolvedBindingRecord({
           Module: module,
           BindingName: e.LocalName as JSStringValue,
+          /* [export-defer] */ DeferredModules: [],
         });
       }
     }
@@ -448,11 +453,22 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
           return new ResolvedBindingRecord({
             Module: importedModule,
             BindingName: 'namespace',
+            DeferredModules: [],
           });
         } else { // iv. Else,
           // 1. Assert: module imports a specific binding for this export.
           // 2. Return importedModule.ResolveExport(e.[[ImportName]], resolveSet).
-          return importedModule.ResolveExport(e.ImportName as JSStringValue, resolveSet);
+          const resolved = importedModule.ResolveExport(e.ImportName as JSStringValue, resolveSet);
+          if (surroundingAgent.feature('export-defer')) {
+            if ((resolved instanceof ResolvedBindingRecord) && module.OptionalIndirectExportEntries?.includes(e)) {
+              return new ResolvedBindingRecord({
+                Module: resolved.Module,
+                BindingName: resolved.BindingName,
+                DeferredModules: [importedModule, ...resolved.DeferredModules],
+              });
+            }
+          }
+          return resolved;
         }
       }
     }
@@ -487,6 +503,14 @@ export class SourceTextModuleRecord extends CyclicModuleRecord {
           // 2. If resolution.[[Module]] and starResolution.[[Module]] are not the same Module Record or SameValue(resolution.[[BindingName]], starResolution.[[BindingName]]) is false, return "ambiguous".
           if (resolution.Module !== starResolution.Module || SameValue(resolution.BindingName as JSStringValue, starResolution.BindingName as JSStringValue) === Value.false) {
             return 'ambiguous';
+          }
+          if (surroundingAgent.feature('export-defer')) {
+            const deferredModules: AbstractModuleRecord[] = starResolution.DeferredModules.concat(resolution.DeferredModules);
+            starResolution = new ResolvedBindingRecord({
+              Module: starResolution.Module,
+              BindingName: starResolution.BindingName,
+              DeferredModules: deferredModules,
+            });
           }
         }
       }
@@ -705,7 +729,11 @@ export class SyntheticModuleRecord extends AbstractModuleRecord {
     // 2. Return ResolvedBinding Record { [[Module]]: module, [[BindingName]]: exportName }.
     for (const e of module.ExportNames) {
       if (SameValue(e, exportName) === Value.true) {
-        return new ResolvedBindingRecord({ Module: module, BindingName: exportName });
+        return new ResolvedBindingRecord({
+          Module: module,
+          BindingName: exportName,
+          /* [export-defer] */ DeferredModules: [],
+        });
       }
     }
     return null;
