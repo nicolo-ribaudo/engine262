@@ -18,6 +18,7 @@ import {
   PromiseCapabilityRecord,
   GraphLoadingState,
   Realm,
+  GetOptionalIndirectExportsModuleRequests,
 } from './abstract-ops/all.mts';
 import {
   VarScopedDeclarations,
@@ -99,7 +100,7 @@ export abstract class AbstractModuleRecord {
 
   abstract ResolveExport(exportName: JSStringValue, resolveSet?: ResolveSetItem[]): 'ambiguous' | ResolvedBindingRecord | null;
 
-  abstract Link(): PlainCompletion<void>;
+  abstract Link(/* [export-defer] */ importedNames?: 'all' | string[]): PlainCompletion<void>;
 
   abstract Evaluate(): Evaluator<PromiseObject>;
 
@@ -196,7 +197,7 @@ export abstract class CyclicModuleRecord extends AbstractModuleRecord {
   }
 
   /** https://tc39.es/ecma262/#sec-moduledeclarationlinking */
-  Link() {
+  Link(/* [export-defer] */ importedNames: 'all' | string[] = 'all') {
     const module = this;
     // 1. Assert: module.[[Status]] is unlinked, linked, evaluating-async, or evaluated.
     Assert(module.Status === 'unlinked' || module.Status === 'linked' || module.Status === 'evaluating-async' || module.Status === 'evaluated');
@@ -222,6 +223,22 @@ export abstract class CyclicModuleRecord extends AbstractModuleRecord {
     Assert(module.Status === 'linked' || module.Status === 'evaluating-async' || module.Status === 'evaluated');
     // 7. Assert: stack is empty.
     Assert(stack.length === 0);
+
+    if (surroundingAgent.feature('export-defer')) {
+      const indirectRequests = GetOptionalIndirectExportsModuleRequests(module, importedNames);
+      for (const request of indirectRequests) {
+        const requiredModule = GetImportedModule(module, request);
+        Assert(
+          !(requiredModule instanceof CyclicModuleRecord)
+          || requiredModule.Status === 'unlinked' || requiredModule.Status === 'linked'
+          || requiredModule.Status === 'evaluating-async' || requiredModule.Status === 'evaluated',
+        );
+        if (!(requiredModule instanceof CyclicModuleRecord) || requiredModule.Status === 'unlinked') {
+          requiredModule.Link(request.ImportedNames!);
+        }
+      }
+    }
+
     // 8. Return unused.
     return NormalCompletion(undefined);
   }

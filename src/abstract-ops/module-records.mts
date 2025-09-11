@@ -159,7 +159,7 @@ export function ContinueModuleLoading(state: GraphLoadingState, result: PlainCom
 }
 
 /* [export-defer] https://tc39.es/proposal-deferred-reexports/#sec-GetOptionalIndirectExportsModuleRequests */
-function GetOptionalIndirectExportsModuleRequests(module: CyclicModuleRecord, importedNames: 'all' | string[]) {
+export function GetOptionalIndirectExportsModuleRequests(module: CyclicModuleRecord, importedNames: 'all' | string[]) {
   const requests: ModuleRequestRecord[] = [];
   for (const oie of module.OptionalIndirectExportEntries!) {
     if (importedNames === 'all' || importedNames.includes((oie.ExportName as JSStringValue).stringValue())) {

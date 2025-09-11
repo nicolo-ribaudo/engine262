@@ -30,7 +30,7 @@ export function ContinueDynamicImport(
   const module = ValueOfNormalCompletion(moduleCompletion);
 
   // 3. Let loadPromise be module.LoadRequestedModules().
-  const loadPromise = module.LoadRequestedModules();
+  const loadPromise = module.LoadRequestedModules(undefined, /* [export-defer] */ 'all');
 
   // 4. Let rejectedClosure be a new Abstract Closure with parameters (reason) that captures promiseCapability and performs the following steps when called:
   const rejectedClosure = ([reason = Value.undefined]: Arguments): void => {
@@ -44,7 +44,7 @@ export function ContinueDynamicImport(
   // 6. Let linkAndEvaluateClosure be a new Abstract Closure with no parameters that captures module, promiseCapability, and onRejected and performs the following steps when called:
   function* linkAndEvaluateClosure() {
     // a. Let link be Completion(module.Link()).
-    const link = module.Link();
+    const link = module.Link(/* [export-defer] */ 'all');
     // b. If link is an abrupt completion, then
     if (link instanceof AbruptCompletion) {
       // i. Perform ! Call(promiseCapability.[[Reject]], undefined, « link.[[Value]] »).
