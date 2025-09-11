@@ -183,3 +183,14 @@ export function MergeImportedNames(a: 'all' | string[], b: 'all' | string[]) {
   }
   return a.concat(b);
 }
+
+/* [export-defer] https://tc39.es/proposal-deferred-reexports/#sec-ExcludeImportedNames */
+export function ExcludeImportedNames(a: 'all' | string[], b: 'all' | string[]) {
+  if (b === 'all') {
+    return [];
+  }
+  if (a === 'all') {
+    return 'all';
+  }
+  return a.filter((name) => !b.includes(name));
+}

@@ -30,6 +30,7 @@ import {
 } from './all.mts';
 import {
   Completion,
+  ExcludeImportedNames,
   HostGetSupportedImportAttributes,
   MergeImportedNames,
   ModuleRequestsEqual,
@@ -45,7 +46,7 @@ export class GraphLoadingState {
 
   IsLoading = true;
 
-  readonly Visited = new Set<CyclicModuleRecord>();
+  readonly Visited = new Map<CyclicModuleRecord, /* [export-defer] */'all' | string[]>();
 
   PendingModules = 1;
 
@@ -70,18 +71,24 @@ export function InnerModuleLoading(state: GraphLoadingState, module: AbstractMod
     let requestsToLoad: readonly ModuleRequestRecord[];
     if (surroundingAgent.feature('export-defer')) {
       requestsToLoad = [];
-      if (module.Status === 'new' && !state.Visited.has(module)) {
-        state.Visited.add(module);
-        requestsToLoad = module.RequestedModules;
+      if (!state.Visited.has(module)) {
+        if (module.Status === 'new') {
+          requestsToLoad = module.RequestedModules;
+        }
+        state.Visited.set(module, []);
       }
-      const indirectRequests = GetOptionalIndirectExportsModuleRequests(module, importedNames!);
+
+      const previouslyImportedNames = state.Visited.get(module)!;
+      const remainingImportedNames = ExcludeImportedNames(importedNames!, previouslyImportedNames);
+      state.Visited.set(module, MergeImportedNames(importedNames!, previouslyImportedNames));
+
+      const indirectRequests = GetOptionalIndirectExportsModuleRequests(module, remainingImportedNames);
       requestsToLoad = requestsToLoad.concat(indirectRequests);
     } else {
-      state.Visited.add(module);
+      // a. Append module to state.[[Visited]].
+      state.Visited.set(module, []);
     }
 
-    // a. Append module to state.[[Visited]].
-    state.Visited.add(module);
     // b. Let requestedModulesCount be the number of elements in module.[[RequestedModules]].
     const requestedModulesCount = (surroundingAgent.feature('export-defer') ? requestsToLoad! : module.RequestedModules).length;
     // c. Set state.[[PendingModulesCount]] to state.[[PendingModulesCount]] + requestedModulesCount.
@@ -123,7 +130,7 @@ export function InnerModuleLoading(state: GraphLoadingState, module: AbstractMod
     // a. Set state.[[IsLoading]] to false.
     state.IsLoading = false;
     // b. For each Cyclic Module Record loaded of state.[[Visited]], do
-    for (const loaded of state.Visited) {
+    for (const [loaded] of state.Visited) {
       // i. If loaded.[[Status]] is new, set loaded.[[Status]] to unlinked.
       if (loaded.Status === 'new') {
         loaded.Status = 'unlinked';
@@ -200,7 +207,11 @@ export function InnerModuleLinking(module: AbstractModuleRecord, stack: CyclicMo
   module.DFSAncestorIndex = index;
   index += 1;
   stack.push(module);
-  const linkingList = surroundingAgent.feature('export-defer') ? BuildLinkingList(module, module.RequestedModules) : undefined;
+  let linkingList: ModuleRecord[] | undefined;
+  if (surroundingAgent.feature('export-defer')) {
+    linkingList = [];
+    BuildLinkingList(linkingList, module, module.RequestedModules);
+  }
   for (const required of surroundingAgent.feature('export-defer') ? linkingList! : module.RequestedModules) {
     const requiredModule = surroundingAgent.feature('export-defer') ? required as ModuleRecord : GetImportedModule(module, required as ModuleRequestRecord);
     index = Q(InnerModuleLinking(requiredModule, stack, index));
@@ -229,19 +240,30 @@ export function InnerModuleLinking(module: AbstractModuleRecord, stack: CyclicMo
   return index;
 }
 
-function BuildLinkingList(referrer: CyclicModuleRecord, moduleRequests: readonly ModuleRequestRecord[]): ModuleRecord[] {
-  const linkingList: ModuleRecord[] = [];
+function BuildLinkingList(
+  linkingList: ModuleRecord[],
+  referrer: CyclicModuleRecord,
+  moduleRequests: readonly ModuleRequestRecord[],
+  previouslyImportedNames: Map<CyclicModuleRecord, 'all' | string[]> = new Map(),
+): void {
   for (const request of moduleRequests) {
     const requiredModule = GetImportedModule(referrer, request);
     if (!linkingList.includes(requiredModule)) {
       linkingList.push(requiredModule);
+      if (requiredModule instanceof CyclicModuleRecord) {
+        Assert(!previouslyImportedNames.has(requiredModule));
+        previouslyImportedNames.set(requiredModule, []);
+      }
     }
     if (requiredModule instanceof CyclicModuleRecord) {
-      const indirectRequests = GetOptionalIndirectExportsModuleRequests(requiredModule, request.ImportedNames!);
-      ListAppendUnique(linkingList, BuildLinkingList(requiredModule, indirectRequests));
+      Assert(previouslyImportedNames.has(requiredModule));
+      const prevImported = previouslyImportedNames.get(requiredModule)!;
+      const remainingImportedNames = ExcludeImportedNames(prevImported, request.ImportedNames!);
+      previouslyImportedNames.set(requiredModule, MergeImportedNames(prevImported, request.ImportedNames!));
+      const indirectRequests = GetOptionalIndirectExportsModuleRequests(requiredModule, remainingImportedNames);
+      BuildLinkingList(linkingList, requiredModule, indirectRequests, previouslyImportedNames);
     }
   }
-  return linkingList;
 }
 
 /** https://tc39.es/ecma262/#sec-EvaluateModuleSync */
@@ -297,7 +319,8 @@ export function* InnerModuleEvaluation(module: AbstractModuleRecord, stack: Cycl
   index += 1;
   let evaluationList: ModuleRecord[];
   if (surroundingAgent.feature('export-defer')) {
-    evaluationList = BuildEvaluationList(module, module.RequestedModules);
+    evaluationList = [];
+    BuildEvaluationList(evaluationList, module, module.RequestedModules);
   } else if (surroundingAgent.feature('import-defer')) {
     /** https://tc39.es/proposal-defer-import-eval/#sec-innermoduleevaluation */
     evaluationList = [];
@@ -370,8 +393,11 @@ export function* InnerModuleEvaluation(module: AbstractModuleRecord, stack: Cycl
 
 /* [export-defer] */
 /** https://tc39.es/proposal-deferred-reexports/#sec-BuildEvaluationList  */
-function BuildEvaluationList(referrer: CyclicModuleRecord, moduleRequests: readonly ModuleRequestRecord[]): ModuleRecord[] {
-  const evaluationList: ModuleRecord[] = [];
+function BuildEvaluationList(
+  evaluationList: ModuleRecord[],
+  referrer: CyclicModuleRecord,
+  moduleRequests: readonly ModuleRequestRecord[],
+): void {
   for (const request of moduleRequests) {
     const requiredModule = GetImportedModule(referrer, request);
     if (request.Phase === 'defer') {
@@ -385,10 +411,9 @@ function BuildEvaluationList(referrer: CyclicModuleRecord, moduleRequests: reado
         importedNames = [];
       }
       const indirectRequests = GetOptionalIndirectExportsModuleRequests(requiredModule, importedNames);
-      ListAppendUnique(evaluationList, BuildEvaluationList(requiredModule, indirectRequests));
+      BuildEvaluationList(evaluationList, requiredModule, indirectRequests);
     }
   }
-  return evaluationList;
 }
 
 /* [export-defer] */
